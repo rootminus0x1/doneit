@@ -29,14 +29,13 @@ The app is a **viewer and archive** — no GPS recording. It runs in Android Chr
 
 - FR-MAP-1: The map is rendered using MapLibre GL JS. The UI is minimal in the style of Google Maps: the map fills the full viewport with no chrome. Controls float over the map.
 - FR-MAP-2: Floating map controls (always visible):
-  - Zoom in / zoom out buttons
-  - Compass rose (rotates to match map bearing; tap resets to north-up)
-  - **Centre on current location** button — uses the browser Geolocation API to obtain the device's GPS position and flies the map to that location. A location accuracy circle is shown. The button shows a loading state while the position is being obtained and an error state if permission is denied or the device has no fix.
-- FR-MAP-3: A floating hamburger/menu button opens the sidebar drawer.
-- FR-MAP-4: The user can switch between multiple tile sources (see §3: Tile Sources). The source selector is in the sidebar.
+  - **Centre on current location** button — uses the browser Geolocation API to obtain the device's GPS position and flies the map to that location. The button shows a loading state while the position is being obtained and an error state if permission is denied.
+- FR-MAP-3: A floating hamburger/menu button (top-left) opens the sidebar drawer. The sidebar closes via its own ✕ button.
+- FR-MAP-4: The user can switch between multiple tile sources (see §3: Tile Sources). The source selector is a **floating "Layers" widget** at the bottom-left of the map (see §5.3). It is not part of the sidebar.
 - FR-MAP-5: The selected tile source persists across sessions (stored in localStorage).
-- FR-MAP-6: The map supports standard pan, pinch-zoom, and rotate gestures.
+- FR-MAP-6: The map supports standard pan, pinch-zoom, and rotate gestures. Map interaction is never blocked by the sidebar or its backdrop.
 - FR-MAP-7: The initial map view centres on Scotland (approximately 57°N, 4°W), zoom level 7.
+- FR-MAP-8: When the tile source changes the map remounts completely (preserving the current viewport), giving an identical code path for initial load and source switching.
 
 ### 2.3 Track Display — File-Driven Categories
 
@@ -73,10 +72,10 @@ Tracks are organised into **categories** (e.g. hiking, canoeing, coastal walking
   - `dashArray` — optional MapLibre dash array for dashed lines (e.g. `[4, 2]` for canoeing)
 
 - FR-TRACK-3: Garmin exports tracks as `activity_NNNN.gpx`. Each file may contain an internal `<name>` or `<desc>` element. The app uses the internal name as the display name; falls back to the filename if absent.
-- FR-TRACK-4: Only tracks whose bounding box overlaps the current map viewport are loaded. Loading is triggered by map pan/zoom events (debounced 300ms). Loading is only active at zoom level ≥ 8.
+- FR-TRACK-4: Only tracks whose bounding box overlaps the current map viewport are fetched from Drive/local storage. Loading is triggered on map `moveend`. Loading is suppressed when the east-west viewport span exceeds ~10 degrees (roughly zoom 6), to avoid fetching everything when very zoomed out.
 - FR-TRACK-5: Each track is rendered using the display style defined in its category's `display.json`.
 - FR-TRACK-6: Tapping/clicking a track opens a popup showing its display name, category, and the date of the activity.
-- FR-TRACK-7: The sidebar groups tracks by category. Each category has a visibility toggle (show/hide all tracks in the category). Individual tracks can also be toggled.
+- FR-TRACK-7: The sidebar lists **all indexed tracks** grouped by category (not just those currently loaded into the map). Each category has a visibility toggle (show/hide all tracks in that category). Individual tracks can also be toggled. Tapping a track name in the sidebar flies the map to that track's bounding box, which also triggers it to load.
 - FR-TRACK-8: **A visibility toggle and the category label are generated automatically for each discovered category subfolder.** Dropping a new subfolder with a `display.json` into `tracks/` on Drive makes it appear in the app on next load (after index rebuild).
 
 ### 2.4 Spatial Index
@@ -308,30 +307,61 @@ The UI is map-first. There is no persistent chrome. All controls float over the 
 
 ```
 ┌─────────────────────────────────────────┐
-│[☰]                                 [●] │  ← hamburger (drawer), sign-in avatar
-│                                         │
-│                  MAP                    │
-│                                    [+]  │  ← zoom in
-│                                    [-]  │  ← zoom out
-│                                    [↑]  │  ← compass (rotates with map)
-│                                    [◎]  │  ← centre on current location
-│                                         │
-└─────────────────────────────────────────┘
+│[☰]                              [Sign in]│  ← hamburger (drawer), auth button
+│                                          │
+│                  MAP                     │
+│                                          │
+│                                          │
+│                                          │
+│[■]                                  [◎] │  ← Layers widget (bottom-left), locate (bottom-right)
+│  © attribution                           │
+└──────────────────────────────────────────┘
 ```
 
 - The map fills 100% of the viewport (no top bar, no footer).
-- The hamburger (☰) opens the sidebar drawer from the left.
-- The sign-in avatar/button floats top-right.
-- Map controls float bottom-right (standard Google Maps convention).
+- The hamburger (☰, top-left) opens the sidebar drawer. Clicking the map does not close it; the ✕ button inside the drawer does.
+- The sign-in button floats top-right.
+- The Layers widget (§5.3) floats bottom-left. It shifts right when the sidebar is open.
+- The locate button (◎) floats bottom-right.
+- MapLibre attribution appears bottom-left, below the Layers widget.
 
 ### 5.2 Sidebar drawer
 
-Slides in from the left. Sections:
+Slides in from the left (300 px wide). Closed via the ✕ button in the header. The sidebar backdrop is non-interactive (`pointer-events: none`) so the map remains fully usable while the sidebar is open.
 
-1. **Tracks** — list of indexed tracks: colour swatch, display name, date. Tap → fly to. Toggle visibility.
+Sections:
+
+1. **Tracks** — all indexed tracks listed and grouped by category, regardless of whether they are currently loaded in the map. Each entry shows: colour swatch (from the category), display name, date. Tap a track name → fly the map to that track's bounding box. Each category has a visibility toggle; individual tracks can be toggled too.
 2. **Peaks** — one toggle per discovered category (dynamically generated from `peaks/` folder contents).
-3. **Map Source** — list of available tile sources (built-in + Drive-discovered PMTiles). Tap to switch.
-4. **Index** — last built date, track count, **Rebuild Index** button, **Cache Region** button.
+3. **Index** — last built date, track count, **Rebuild Index** button.
+
+### 5.3 Layers (map style) widget
+
+A floating "stack of papers" button at the bottom-left of the map. Inspired by the Google Maps layer toggle.
+
+**Collapsed state:**
+- Appears as a stack of cards: the active style's icon is on top, with the icons for the other styles peeking out from the bottom-right at stepped offsets, giving a physical "stack of documents" appearance.
+- A "Layers" label sits below the stack.
+- **Click** cycles to the next style in the list (wraps around).
+- **Hover** opens the style panel.
+
+**Expanded state (on hover):**
+- A panel appears above the stack showing all available tile sources.
+- Each source is shown as a row: a 48×48 SVG icon thumbnail (representing the map's visual character) and the source label.
+- The active source is highlighted with a blue ring.
+- **Clicking a source** switches the map to that style. The panel does not close.
+- **Hovering away** from both the stack and the panel closes the panel (150 ms debounce so moving the mouse between stack and panel does not flicker).
+
+**Positioning:**
+- `bottom: 28px, left: 12px` when the sidebar is closed.
+- Shifts to `left: 312px` (smoothly animated) when the sidebar is open, so it stays clear of the drawer.
+
+**Configuration:**
+- Tile sources and their icons are defined in `src/lib/tileConfig.ts`. Each `TileSource` entry includes:
+  - `label` — displayed in the panel
+  - `thumbColor` — fallback background colour
+  - `icon` — an SVG string providing a representative miniature view of the map style
+- Adding a new entry to `BUILT_IN_SOURCES` automatically adds it to the widget. No component changes required.
 
 ### 5.3 Popups
 
@@ -367,7 +397,7 @@ Munros  ·  1,345 m
 |---|---|
 | Framework | React 18 + TypeScript |
 | Build tool | Vite |
-| Package manager | Yarn Classic (v1) |
+| Package manager | Yarn 4 (nodeLinker: node-modules) |
 | Mapping | MapLibre GL JS |
 | Vector tiles (Phase 1) | Stadia Maps (MVT) |
 | Satellite imagery | Esri World Imagery (raster, no key) |
@@ -393,9 +423,49 @@ Munros  ·  1,345 m
 
 ---
 
-## 9. Future Requirements
+## 9. Local Testing Mode
 
-### 9.1 Peak-based track naming
+Set `VITE_LOCAL_MODE=true` in `.env.local` to run the app without Google Drive or authentication. The app reads from a local `data/` directory instead, which must mirror the Drive folder structure:
+
+```
+data/
+  tracks/
+    tracks-index.json   ← built by the app on first run; stored in localStorage
+    hiking/
+      display.json
+      activity_*.gpx
+    (any other category subfolders)
+  peaks/
+    munros.gpx
+    munro-tops.gpx
+    (any other .gpx files)
+```
+
+The Vite dev server plugin (`serveLocalData` in `vite.config.ts`) serves this directory at `/local-data/` with directory listings as JSON arrays, mimicking the Drive API's folder-listing behaviour. The plugin is only active in dev mode and is a no-op in production builds.
+
+**Data API abstraction:**
+All data access goes through `src/lib/dataApi.ts`, which selects either `driveApi` or `localDataApi` at module load time based on `VITE_LOCAL_MODE`. Hooks import only from `dataApi` and have no direct awareness of which mode is active. The `isReady(token)` helper returns `true` immediately in local mode (no auth required) and requires a non-null token in Drive mode.
+
+The local adapter stores the generated `tracks-index.json` in `localStorage` under the key `local:tracks/tracks-index.json`. If you restructure the `data/` directory (e.g. move files between subfolders), clear localStorage and let the index rebuild, or use the **Rebuild Index** button in the sidebar.
+
+---
+
+## 10. Architecture Notes
+
+### Source switching without state loss
+Tile source switching uses the React `key={activeSource.id}` prop on `<MapView>`. When the key changes, React unmounts and remounts the component, creating a fresh MapLibre instance for the new style. The current viewport centre and zoom are stored in `useRef` in `App.tsx` and passed as `initialCenter`/`initialZoom` props to the new instance, so the user's position is preserved. This gives an identical code path for initial load and subsequent source switches (see CLAUDE.md design principle).
+
+### Callback refs in MapView
+MapLibre event handlers are registered in a `useEffect([])` that runs once per mount. React callbacks (e.g. `onBoundsChange`, `onTrackClick`) are stored in `useRef` and updated on every render via a one-liner effect. This means the handlers always call the latest version of the callback without needing to re-register the MapLibre listener or re-run the init effect.
+
+### Sidebar backdrop
+The sidebar backdrop (`position: fixed`) has `pointer-events: none`. The map is therefore always interactive regardless of whether the sidebar is open. The sidebar closes only via its ✕ button or by clicking a track (which also flies to it).
+
+---
+
+## 11. Future Requirements
+
+### 11.1 Peak-based track naming
 
 When a track is added to the index (during build or rebuild), detect which peaks from the peaks GPX files fall within a configurable distance (default: 100 m) of any point along the track. Generate an enriched display name listing those peaks (e.g. "Ben Nevis, Carn Mor Dearg"). Store this enriched name in the index alongside the raw GPX name.
 
@@ -404,7 +474,7 @@ Design notes:
 - Configurable threshold stored in app settings.
 - Enriched name shown in the sidebar and popup; raw GPX name preserved in the index.
 
-### 9.2 Munro bagging database
+### 11.2 Munro bagging database
 
 Automatically detect track/peak coincidences (same algorithm as §9.1) and maintain a `peaks/bagged.json` database on Drive. Each entry records: peak name, category, coordinates, elevation, date bagged, and the Drive fileId of the evidencing track.
 
@@ -415,10 +485,10 @@ Design notes:
 - The bagged database can be manually edited for peaks bagged before app use.
 - Because peak categories are file-driven, bagging tracking automatically extends to any new category added.
 
-### 9.3 Custom map layer generation
+### 11.3 Custom map layer generation
 
 A future separate project will generate custom raster or vector map layers (e.g. from Ordnance Survey data, contours, custom styling). These will be served as additional MapLibre sources hosted on Drive as PMTiles files, discovered by the existing file-driven tile source mechanism (§3.2).
 
-### 9.4 Google Maps integration
+### 11.4 Google Maps integration
 
 Integrating Google Maps as a tile source in MapLibre violates Google's ToS. If a Google Maps experience is required in future, options are: (a) a fully separate embedded Google Maps view as an app mode, with track/peak overlays implemented using the Google Maps JS API overlay model; or (b) continued use of Esri Satellite + OSM vector which provides comparable visual quality. To be revisited if a concrete need arises.

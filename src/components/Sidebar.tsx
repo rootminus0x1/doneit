@@ -1,7 +1,6 @@
 import type { TrackCategory } from '../hooks/useDriveData'
 import type { IndexEntry } from '../lib/spatialIndex'
 import type { ParsedPeaks } from '../lib/gpxParser'
-import type { TileSource } from '../lib/tileConfig'
 import type { TrackBbox } from '../lib/gpxParser'
 
 interface Props {
@@ -19,10 +18,6 @@ interface Props {
   peakSets: ParsedPeaks[]
   hiddenPeakCategories: Set<string>
   onTogglePeakCategory: (cat: string) => void
-  // tile sources
-  allSources: TileSource[]
-  activeSourceId: string
-  onSelectSource: (id: string) => void
   // index
   indexGenerated: string | null
   indexTrackCount: number
@@ -36,7 +31,6 @@ export function Sidebar({
   categories, visibleTracks, hiddenCategories, hiddenTrackIds,
   onToggleCategory, onToggleTrack, onFlyToTrack,
   peakSets, hiddenPeakCategories, onTogglePeakCategory,
-  allSources, activeSourceId, onSelectSource,
   indexGenerated, indexTrackCount, building, progress, onRebuild,
 }: Props) {
   return (
@@ -109,22 +103,6 @@ export function Sidebar({
               ))}
             </Section>
           )}
-
-          {/* Map source */}
-          <Section label="Map Source">
-            {allSources.map(s => (
-              <button
-                key={s.id}
-                style={{
-                  ...styles.sourceBtn,
-                  ...(s.id === activeSourceId ? styles.sourceBtnActive : {}),
-                }}
-                onClick={() => onSelectSource(s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </Section>
 
           {/* Index */}
           <Section label="Index">

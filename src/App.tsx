@@ -5,6 +5,7 @@ import { useTileSource } from './hooks/useTileSource'
 import { useViewportTracks } from './hooks/useViewportTracks'
 import { MapView } from './components/MapView'
 import { MapControls } from './components/MapControls'
+import { MapStyleSelector } from './components/MapStyleSelector'
 import { Sidebar } from './components/Sidebar'
 import type { TrackBbox } from './lib/gpxParser'
 
@@ -84,9 +85,7 @@ export default function App() {
     })
   }, [])
 
-  const visibleTracks = trackIndex?.tracks.filter(t =>
-    loadedTracks.some(lt => lt.fileId === t.fileId)
-  ) ?? []
+  const allIndexedTracks = trackIndex?.tracks ?? []
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -107,6 +106,13 @@ export default function App() {
         onTrackClick={handleTrackClick}
         onPeakClick={handlePeakClick}
         flyToBbox={flyToBbox}
+      />
+
+      <MapStyleSelector
+        sources={allSources}
+        activeId={activeSource.id}
+        sidebarOpen={sidebarOpen}
+        onSelect={setSource}
       />
 
       {/* Hamburger */}
@@ -145,7 +151,7 @@ export default function App() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         categories={categories}
-        visibleTracks={visibleTracks}
+        visibleTracks={allIndexedTracks}
         hiddenCategories={hiddenCategories}
         hiddenTrackIds={hiddenTrackIds}
         onToggleCategory={toggleCategory}
@@ -154,9 +160,6 @@ export default function App() {
         peakSets={peakSets}
         hiddenPeakCategories={hiddenPeakCats}
         onTogglePeakCategory={togglePeakCat}
-        allSources={allSources}
-        activeSourceId={activeSource.id}
-        onSelectSource={(id) => { setSource(id); setSidebarOpen(false) }}
         indexGenerated={trackIndex?.generated ?? null}
         indexTrackCount={trackIndex?.tracks.length ?? 0}
         building={building}

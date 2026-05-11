@@ -6,7 +6,7 @@ import type { TrackIndex } from '../lib/spatialIndex'
 import type { TrackBbox } from '../lib/gpxParser'
 import type { FeatureCollection, LineString } from 'geojson'
 
-const MIN_ZOOM_APPROX_DEG = 3.0  // roughly zoom 8 in degrees-per-viewport
+const MIN_ZOOM_APPROX_DEG = 10.0  // roughly zoom 6 in degrees-per-viewport
 
 export interface LoadedTrack {
   fileId: string
