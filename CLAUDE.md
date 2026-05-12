@@ -5,10 +5,19 @@
 ### Single code path for default and non-default cases
 Do not write separate initialisation code for a default value and separate change-handling code for switching to a different value. Both should use the same code path. If a component needs to react to a changing value (e.g. tile source, theme, config), write one effect or handler that runs for all values including the initial one.
 
-Example: MapView recreates the MapLibre map instance whenever `source` changes — this handles both the first load and subsequent switches identically, via the same `useEffect([source])`.
+Example: MapView keeps the same MapLibre instance alive across style switches and calls `map.setStyle()` with a `transformStyle` callback that copies custom track/peak sources and layers into the incoming style spec. A separate `useEffect([source])` handles style updates while `useEffect([])` handles map creation and teardown.
 
 ### File-driven configuration
 No category names, source lists, or layer counts are hardcoded. The app discovers all configuration by reading the data source (Drive or local files) at startup.
+
+### Vector tiles only
+Only vector tile sources (MapLibre style JSON with `styleUrl`) are supported. Raster tile sources are not used. Do not add raster support to `tileConfig.ts` or `MapView.tsx`, and do not include raster entries in `tile-sources.json`.
+
+### No silent fallbacks
+Do not swallow errors or substitute placeholder data when something fails to load. Silent fallbacks mask real problems — the user sees a working-looking app when it is actually broken. Instead, propagate errors and surface them visibly (error banner, thrown exception). The only acceptable silent behaviour is skipping a single malformed item in a list (e.g. one unreadable GPX file) when others can still be shown.
+
+### Questions vs instructions
+When a message ends with "?", it is a question to be answered in the reply — not an instruction to act on. Answer it before doing anything else, and do not treat it as a directive to change code or behaviour.
 
 ### Local testing mode
 Set `VITE_LOCAL_MODE=true` in `.env.local` to use the local `data/` directory instead of Google Drive. No sign-in required. The data directory structure must mirror the Drive layout:

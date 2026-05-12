@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import maplibregl, { type LngLatBoundsLike, type StyleSpecification } from 'maplibre-gl'
+import maplibregl, { type LngLatBoundsLike, type StyleSpecification, type SourceSpecification } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TileSource } from '../lib/tileConfig'
-import { buildRasterStyle } from '../lib/tileConfig'
 import type { TrackCategory } from '../hooks/useDriveData'
 import type { FeatureCollection, LineString, Point } from 'geojson'
 import type { TrackBbox } from '../lib/gpxParser'
@@ -30,9 +29,6 @@ interface Props {
   categories: TrackCategory[]
   loadedTracks: LoadedTrack[]
   loadedPeaks: LoadedPeaks[]
-  hiddenCategories: Set<string>
-  hiddenPeakCategories: Set<string>
-  hiddenTrackIds: Set<string>
   onBoundsChange: (bounds: TrackBbox) => void
   onMove: (center: [number, number], zoom: number) => void
   onTrackClick: (fileId: string) => void
@@ -40,9 +36,27 @@ interface Props {
   flyToBbox?: TrackBbox | null
 }
 
-function buildStyle(source: TileSource): StyleSpecification | string {
-  if (source.type === 'vector') return source.styleUrl!
-  return buildRasterStyle(source) as StyleSpecification
+// Copies track/peak sources and layers from the previous style into the next one
+// so they remain visible throughout a style switch.
+function preserveCustomLayers(
+  prev: StyleSpecification | undefined,
+  next: StyleSpecification
+): StyleSpecification {
+  if (!prev) return next
+  const customSources: Record<string, SourceSpecification> = {}
+  for (const [id, src] of Object.entries(prev.sources ?? {})) {
+    if (id.startsWith('track-') || id.startsWith('peaks-')) {
+      customSources[id] = src as SourceSpecification
+    }
+  }
+  const customLayers = (prev.layers ?? []).filter(
+    l => l.id.startsWith('track-line-') || l.id.startsWith('peaks-circle-')
+  )
+  return {
+    ...next,
+    sources: { ...next.sources, ...customSources },
+    layers: [...next.layers, ...customLayers],
+  }
 }
 
 export function MapView({
@@ -52,9 +66,6 @@ export function MapView({
   categories,
   loadedTracks,
   loadedPeaks,
-  hiddenCategories,
-  hiddenPeakCategories,
-  hiddenTrackIds,
   onBoundsChange,
   onMove,
   onTrackClick,
@@ -63,8 +74,10 @@ export function MapView({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // Tracks which source the map is currently showing, to skip redundant setStyle calls
+  const loadedSourceIdRef = useRef<string | null>(null)
 
-  // Stable callback refs — changes to these never re-run the init effect
+  // Stable callback refs — updates never re-run the init effect
   const onBoundsChangeRef = useRef(onBoundsChange)
   const onMoveRef = useRef(onMove)
   const onTrackClickRef = useRef(onTrackClick)
@@ -74,17 +87,16 @@ export function MapView({
   useEffect(() => { onTrackClickRef.current = onTrackClick })
   useEffect(() => { onPeakClickRef.current = onPeakClick })
 
-  // Triggers layer effects after style finishes loading
+  // Increments whenever the style finishes loading, triggering layer effects
   const [mapVersion, setMapVersion] = useState(0)
 
-  // Initialise once per mount. The parent uses key={source.id} to remount
-  // when the source changes — same code path as initial load.
+  // Create the map once. Destroyed only on unmount — style switches use setStyle below.
   useEffect(() => {
     if (!containerRef.current) return
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: buildStyle(source),
+      style: source.styleUrl!,
       center: initialCenter,
       zoom: initialZoom,
       attributionControl: false,
@@ -92,6 +104,7 @@ export function MapView({
 
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
     mapRef.current = map
+    loadedSourceIdRef.current = source.id
 
     map.on('moveend', () => {
       const c = map.getCenter()
@@ -103,7 +116,8 @@ export function MapView({
       })
     })
 
-    map.on('load', () => {
+    // style.load fires on initial load AND after every setStyle call
+    map.on('style.load', () => {
       const b = map.getBounds()
       onBoundsChangeRef.current({
         west: b.getWest(), east: b.getEast(),
@@ -115,13 +129,23 @@ export function MapView({
     return () => {
       map.remove()
       mapRef.current = null
+      loadedSourceIdRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the source prop changes, update the style in place — no remount.
+  // transformStyle preserves our custom track/peak layers so they stay visible.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || loadedSourceIdRef.current === source.id) return
+    loadedSourceIdRef.current = source.id
+    map.setStyle(source.styleUrl!, { transformStyle: preserveCustomLayers })
+  }, [source])
 
   // Sync track layers — reruns when tracks change or after style loads
   useEffect(() => {
     const map = mapRef.current
-    if (!map?.isStyleLoaded()) return
+    if (!map || mapVersion === 0) return
 
     const catLookup: Record<string, TrackCategory> = Object.fromEntries(
       categories.map(c => [c.name, c])
@@ -131,7 +155,7 @@ export function MapView({
       const sid = `track-${track.fileId}`
       const lid = `track-line-${track.fileId}`
       const cat = catLookup[track.category]
-      const hidden = hiddenCategories.has(track.category) || hiddenTrackIds.has(track.fileId)
+      if (!cat) throw new Error(`Track ${track.fileId} has unknown category "${track.category}"`)
 
       if (!map.getSource(sid)) {
         map.addSource(sid, { type: 'geojson', data: track.geojson })
@@ -140,10 +164,10 @@ export function MapView({
           type: 'line',
           source: sid,
           paint: {
-            'line-color': cat?.color ?? '#e53935',
-            'line-width': cat?.width ?? 3,
-            'line-opacity': cat?.opacity ?? 0.8,
-            ...(cat?.dashArray ? { 'line-dasharray': cat.dashArray } : {}),
+            'line-color': cat.color,
+            'line-width': cat.width,
+            'line-opacity': cat.opacity,
+            ...(cat.dashArray ? { 'line-dasharray': cat.dashArray } : {}),
           },
         })
         map.on('click', lid, e => {
@@ -152,22 +176,17 @@ export function MapView({
         map.on('mouseenter', lid, () => { map.getCanvas().style.cursor = 'pointer' })
         map.on('mouseleave', lid, () => { map.getCanvas().style.cursor = '' })
       }
-
-      if (map.getLayer(lid)) {
-        map.setLayoutProperty(lid, 'visibility', hidden ? 'none' : 'visible')
-      }
     }
-  }, [loadedTracks, categories, hiddenCategories, hiddenTrackIds, mapVersion])
+  }, [loadedTracks, categories, mapVersion])
 
   // Sync peak layers — reruns when peaks change or after style loads
   useEffect(() => {
     const map = mapRef.current
-    if (!map?.isStyleLoaded()) return
+    if (!map || mapVersion === 0) return
 
     for (const ps of loadedPeaks) {
       const sid = `peaks-${ps.category}`
       const lid = `peaks-circle-${ps.category}`
-      const hidden = hiddenPeakCategories.has(ps.category)
 
       if (!map.getSource(sid)) {
         map.addSource(sid, { type: 'geojson', data: ps.geojson })
@@ -189,12 +208,8 @@ export function MapView({
         map.on('mouseenter', lid, () => { map.getCanvas().style.cursor = 'pointer' })
         map.on('mouseleave', lid, () => { map.getCanvas().style.cursor = '' })
       }
-
-      if (map.getLayer(lid)) {
-        map.setLayoutProperty(lid, 'visibility', hidden ? 'none' : 'visible')
-      }
     }
-  }, [loadedPeaks, hiddenPeakCategories, mapVersion])
+  }, [loadedPeaks, mapVersion])
 
   // Fly to bbox
   useEffect(() => {

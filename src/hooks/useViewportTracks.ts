@@ -5,8 +5,7 @@ import { api, isReady } from '../lib/dataApi'
 import type { TrackIndex } from '../lib/spatialIndex'
 import type { TrackBbox } from '../lib/gpxParser'
 import type { FeatureCollection, LineString } from 'geojson'
-
-const MIN_ZOOM_APPROX_DEG = 10.0  // roughly zoom 6 in degrees-per-viewport
+import type { TrackCategory } from './useDriveData'
 
 export interface LoadedTrack {
   fileId: string
@@ -19,7 +18,8 @@ export interface LoadedTrack {
 export function useViewportTracks(
   token: string | null,
   trackIndex: TrackIndex | null,
-  viewport: TrackBbox | null
+  viewport: TrackBbox | null,
+  categories: TrackCategory[]
 ) {
   const [loadedTracks, setLoadedTracks] = useState<LoadedTrack[]>([])
   const cacheRef = useRef<Map<string, LoadedTrack>>(new Map())
@@ -67,14 +67,16 @@ export function useViewportTracks(
     if (!isReady(token) || !trackIndex || !viewport) return
 
     const viewportSpan = viewport.east - viewport.west
-    if (viewportSpan > MIN_ZOOM_APPROX_DEG) return  // too zoomed out
+    const catLookup = new Map(categories.map(c => [c.name, c]))
 
-    const matching = queryByBbox(trackIndex, viewport)
-    const ids = matching.map(e => e.fileId)
-    if (ids.length === 0) return
+    const matching = queryByBbox(trackIndex, viewport).filter(entry => {
+      const cat = catLookup.get(entry.category)
+      return !cat?.maxViewportSpan || viewportSpan <= cat.maxViewportSpan
+    })
 
-    loadTracks(token, ids, trackIndex)
-  }, [token, trackIndex, viewport, loadTracks])
+    if (matching.length === 0) return
+    loadTracks(token, matching.map(e => e.fileId), trackIndex)
+  }, [token, trackIndex, viewport, categories, loadTracks])
 
   // Clear cache on sign-out (Drive mode only)
   useEffect(() => {

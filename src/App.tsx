@@ -20,7 +20,7 @@ export default function App() {
     trackIndex, categories, peakSets,
     rebuildIndex,
   } = useDriveData(token)
-  const { allSources, activeSource, setSource } = useTileSource()
+  const { allSources, activeSource, setSource, loadError } = useTileSource(token)
 
   const savedCenter = useRef<[number, number]>([-4.0, 57.0])
   const savedZoom = useRef<number>(7)
@@ -32,45 +32,15 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [viewport, setViewport] = useState<TrackBbox | null>(null)
   const [flyToBbox, setFlyToBbox] = useState<TrackBbox | null>(null)
-  const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set())
-  const [hiddenTrackIds, setHiddenTrackIds] = useState<Set<string>>(new Set())
-  const [hiddenPeakCats, setHiddenPeakCats] = useState<Set<string>>(new Set())
   const [popup, setPopup] = useState<{ title: string; body: string } | null>(null)
 
-  const loadedTracks = useViewportTracks(token, trackIndex, viewport)
+  const loadedTracks = useViewportTracks(token, trackIndex, viewport, categories)
 
   // Assign colours to peak sets
   const loadedPeaks = peakSets.map((ps, i) => ({
     ...ps,
     color: PEAK_COLORS[i % PEAK_COLORS.length],
   }))
-
-  const toggleCategory = useCallback((name: string) => {
-    setHiddenCategories(prev => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }, [])
-
-  const toggleTrack = useCallback((fileId: string) => {
-    setHiddenTrackIds(prev => {
-      const next = new Set(prev)
-      if (next.has(fileId)) next.delete(fileId)
-      else next.add(fileId)
-      return next
-    })
-  }, [])
-
-  const togglePeakCat = useCallback((cat: string) => {
-    setHiddenPeakCats(prev => {
-      const next = new Set(prev)
-      if (next.has(cat)) next.delete(cat)
-      else next.add(cat)
-      return next
-    })
-  }, [])
 
   const handleTrackClick = useCallback((fileId: string) => {
     const entry = trackIndex?.tracks.find(t => t.fileId === fileId)
@@ -89,28 +59,26 @@ export default function App() {
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      {/* Map fills viewport */}
-      <MapView
-        key={activeSource.id}
-        source={activeSource}
-        initialCenter={savedCenter.current}
-        initialZoom={savedZoom.current}
-        onMove={handleMove}
-        categories={categories}
-        loadedTracks={loadedTracks}
-        loadedPeaks={loadedPeaks}
-        hiddenCategories={hiddenCategories}
-        hiddenPeakCategories={hiddenPeakCats}
-        hiddenTrackIds={hiddenTrackIds}
-        onBoundsChange={setViewport}
-        onTrackClick={handleTrackClick}
-        onPeakClick={handlePeakClick}
-        flyToBbox={flyToBbox}
-      />
+      {/* Map fills viewport — only rendered once a source is available */}
+      {activeSource && (
+        <MapView
+          source={activeSource}
+          initialCenter={savedCenter.current}
+          initialZoom={savedZoom.current}
+          onMove={handleMove}
+          categories={categories}
+          loadedTracks={loadedTracks}
+          loadedPeaks={loadedPeaks}
+          onBoundsChange={setViewport}
+          onTrackClick={handleTrackClick}
+          onPeakClick={handlePeakClick}
+          flyToBbox={flyToBbox}
+        />
+      )}
 
       <MapStyleSelector
         sources={allSources}
-        activeId={activeSource.id}
+        activeId={activeSource?.id ?? ''}
         sidebarOpen={sidebarOpen}
         onSelect={setSource}
       />
@@ -143,6 +111,13 @@ export default function App() {
         </div>
       )}
 
+      {/* Tile source config error */}
+      {loadError && (
+        <div style={{ ...styles.loadingBanner, background: '#c62828' }}>
+          Map config error: {loadError}
+        </div>
+      )}
+
       {/* Location + controls */}
       <MapControls onLocate={setFlyToBbox} />
 
@@ -152,14 +127,8 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
         categories={categories}
         visibleTracks={allIndexedTracks}
-        hiddenCategories={hiddenCategories}
-        hiddenTrackIds={hiddenTrackIds}
-        onToggleCategory={toggleCategory}
-        onToggleTrack={toggleTrack}
         onFlyToTrack={bbox => { setFlyToBbox(bbox); setSidebarOpen(false) }}
         peakSets={peakSets}
-        hiddenPeakCategories={hiddenPeakCats}
-        onTogglePeakCategory={togglePeakCat}
         indexGenerated={trackIndex?.generated ?? null}
         indexTrackCount={trackIndex?.tracks.length ?? 0}
         building={building}

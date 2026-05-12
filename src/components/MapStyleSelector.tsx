@@ -26,6 +26,7 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
   const handleLeave = () => scheduleClose()
 
   const active = sources.find(s => s.id === activeId) ?? sources[0]
+  if (!active) return null
   const behind = sources.filter(s => s.id !== activeId).slice(0, 2)
 
   // Click on stack rotates to the next source

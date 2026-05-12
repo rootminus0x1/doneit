@@ -12,6 +12,7 @@ export interface TrackCategory {
   width: number
   opacity: number
   dashArray: number[] | null
+  maxViewportSpan: number | null  // degrees east-west; null = show at all scales
 }
 
 export interface DriveDataState {
@@ -36,6 +37,7 @@ interface DisplayConfig {
   width: number
   opacity: number
   dashArray: number[] | null
+  maxViewportSpan: number | null
 }
 
 const DEFAULT_DISPLAY: DisplayConfig = {
@@ -43,6 +45,7 @@ const DEFAULT_DISPLAY: DisplayConfig = {
   width: 3,
   opacity: 0.8,
   dashArray: null,
+  maxViewportSpan: null,
 }
 
 export function useDriveData(token: string | null): DriveDataState {
@@ -148,6 +151,7 @@ export function useDriveData(token: string | null): DriveDataState {
             width: display.width,
             opacity: display.opacity,
             dashArray: display.dashArray,
+            maxViewportSpan: display.maxViewportSpan,
           }
         })
       )

@@ -9,15 +9,9 @@ interface Props {
   // track data
   categories: TrackCategory[]
   visibleTracks: IndexEntry[]
-  hiddenCategories: Set<string>
-  hiddenTrackIds: Set<string>
-  onToggleCategory: (name: string) => void
-  onToggleTrack: (fileId: string) => void
   onFlyToTrack: (bbox: TrackBbox) => void
   // peaks
   peakSets: ParsedPeaks[]
-  hiddenPeakCategories: Set<string>
-  onTogglePeakCategory: (cat: string) => void
   // index
   indexGenerated: string | null
   indexTrackCount: number
@@ -28,9 +22,8 @@ interface Props {
 
 export function Sidebar({
   open, onClose,
-  categories, visibleTracks, hiddenCategories, hiddenTrackIds,
-  onToggleCategory, onToggleTrack, onFlyToTrack,
-  peakSets, hiddenPeakCategories, onTogglePeakCategory,
+  categories, visibleTracks, onFlyToTrack,
+  peakSets,
   indexGenerated, indexTrackCount, building, progress, onRebuild,
 }: Props) {
   return (
@@ -49,25 +42,12 @@ export function Sidebar({
               <div key={cat.name}>
                 <div style={styles.categoryRow}>
                   <span style={{ ...styles.swatch, background: cat.color }} />
-                  <button
-                    style={styles.toggleBtn}
-                    onClick={() => onToggleCategory(cat.name)}
-                  >
-                    {hiddenCategories.has(cat.name) ? '○' : '●'}
-                  </button>
                   <span style={styles.categoryLabel}>{cat.label}</span>
                 </div>
                 {visibleTracks
                   .filter(t => t.category === cat.name)
                   .map(t => (
                     <div key={t.fileId} style={styles.trackRow}>
-                      <button
-                        style={styles.toggleBtn}
-                        onClick={() => onToggleTrack(t.fileId)}
-                        title={hiddenTrackIds.has(t.fileId) ? 'Show' : 'Hide'}
-                      >
-                        {hiddenTrackIds.has(t.fileId) ? '○' : '●'}
-                      </button>
                       <button
                         style={styles.trackBtn}
                         onClick={() => onFlyToTrack(t.bbox)}
@@ -89,16 +69,8 @@ export function Sidebar({
             <Section label="Peaks">
               {peakSets.map(ps => (
                 <div key={ps.category} style={styles.categoryRow}>
-                  <button
-                    style={styles.toggleBtn}
-                    onClick={() => onTogglePeakCategory(ps.category)}
-                  >
-                    {hiddenPeakCategories.has(ps.category) ? '○' : '●'}
-                  </button>
                   <span style={styles.categoryLabel}>{ps.category}</span>
-                  <span style={styles.count}>
-                    {ps.geojson.features.length}
-                  </span>
+                  <span style={styles.count}>{ps.geojson.features.length}</span>
                 </div>
               ))}
             </Section>
@@ -181,10 +153,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   trackName: { fontSize: 13, color: '#333' },
   trackDate: { fontSize: 11, color: '#888' },
-  toggleBtn: {
-    background: 'none', border: 'none', cursor: 'pointer',
-    fontSize: 14, color: '#1a73e8', flexShrink: 0, padding: 0, lineHeight: 1,
-  },
   count: { fontSize: 11, color: '#999', marginLeft: 'auto' },
   sourceBtn: {
     display: 'block', width: '100%', textAlign: 'left',

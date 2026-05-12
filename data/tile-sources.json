@@ -1,0 +1,29 @@
+[
+  {
+    "id": "stadia-outdoors",
+    "label": "Outdoors",
+    "type": "vector",
+    "styleUrl": "https://tiles.stadiamaps.com/styles/outdoors.json",
+    "attribution": "© <a href='https://stadiamaps.com/'>Stadia Maps</a> © <a href='https://openmaptiles.org/'>OpenMapTiles</a> © <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>",
+    "thumbColor": "#d4e8c2",
+    "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#ddeec8'/><path d='M0,52 Q16,44 32,46 Q48,48 64,40' stroke='#b8d49a' stroke-width='2' fill='none'/><path d='M0,44 Q16,36 32,38 Q48,40 64,32' stroke='#a8c888' stroke-width='1.5' fill='none'/><path d='M0,36 Q16,28 32,30 Q48,32 64,24' stroke='#98bc78' stroke-width='1.5' fill='none'/><path d='M0,28 Q16,20 32,22 Q48,24 64,16' stroke='#88b068' stroke-width='1.2' fill='none'/><polygon points='32,4 46,24 18,24' fill='#8ca870' stroke='#6a8850' stroke-width='1'/><polygon points='20,14 30,28 10,28' fill='#a0b880' stroke='#7a9860' stroke-width='0.8'/></svg>"
+  },
+  {
+    "id": "stadia-osm",
+    "label": "Map",
+    "type": "vector",
+    "styleUrl": "https://tiles.stadiamaps.com/styles/osm_bright.json",
+    "attribution": "© <a href='https://stadiamaps.com/'>Stadia Maps</a> © <a href='https://openmaptiles.org/'>OpenMapTiles</a> © <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>",
+    "thumbColor": "#e8e0d0",
+    "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#f2ece3'/><rect x='4' y='4' width='20' height='20' fill='#e4dbd0'/><rect x='40' y='4' width='20' height='14' fill='#e4dbd0'/><rect x='40' y='42' width='20' height='18' fill='#e4dbd0'/><rect x='4' y='40' width='20' height='20' fill='#cde8b4'/><rect x='0' y='27' width='64' height='10' fill='#ffffff'/><rect x='27' y='0' width='10' height='64' fill='#ffffff'/><rect x='0' y='27' width='64' height='10' stroke='#d4ccc0' stroke-width='0.5' fill='none'/><rect x='27' y='0' width='10' height='64' stroke='#d4ccc0' stroke-width='0.5' fill='none'/></svg>"
+  },
+  {
+    "id": "stadia-dark",
+    "label": "Dark",
+    "type": "vector",
+    "styleUrl": "https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json",
+    "attribution": "© <a href='https://stadiamaps.com/'>Stadia Maps</a> © <a href='https://openmaptiles.org/'>OpenMapTiles</a> © <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>",
+    "thumbColor": "#2a2a3a",
+    "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#1a1a2e'/><rect x='4' y='4' width='20' height='20' fill='#252538'/><rect x='40' y='4' width='20' height='14' fill='#252538'/><rect x='40' y='42' width='20' height='18' fill='#252538'/><rect x='4' y='40' width='20' height='20' fill='#1e3028'/><rect x='0' y='27' width='64' height='10' fill='#2e2e48'/><rect x='27' y='0' width='10' height='64' fill='#2e2e48'/></svg>"
+  }
+]
