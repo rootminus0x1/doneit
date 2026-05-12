@@ -95,7 +95,7 @@ export async function upsertJsonFile(
   const body = JSON.stringify(content, null, 2)
 
   if (existing) {
-    await fetch(`${UPLOAD_API}/files/${existing.id}?uploadType=media`, {
+    const res = await fetch(`${UPLOAD_API}/files/${existing.id}?uploadType=media`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -103,6 +103,7 @@ export async function upsertJsonFile(
       },
       body,
     })
+    if (!res.ok) throw new Error(`Drive write error ${res.status}`)
   } else {
     const metadata = JSON.stringify({ name, parents: [parentId] })
     const blob = new Blob([
@@ -110,7 +111,7 @@ export async function upsertJsonFile(
       `--boundary\r\nContent-Type: application/json\r\n\r\n${body}\r\n`,
       '--boundary--',
     ])
-    await fetch(`${UPLOAD_API}/files?uploadType=multipart`, {
+    const res = await fetch(`${UPLOAD_API}/files?uploadType=multipart`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -118,6 +119,7 @@ export async function upsertJsonFile(
       },
       body: blob,
     })
+    if (!res.ok) throw new Error(`Drive create error ${res.status}`)
   }
 }
 

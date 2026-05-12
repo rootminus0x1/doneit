@@ -16,7 +16,7 @@ const PEAK_COLORS = [
 export default function App() {
   const { token, signIn, signOut, error: authError } = useGoogleAuth()
   const {
-    ready, building, progress,
+    ready, building, progress, error: driveError,
     trackIndex, categories, peakSets,
     rebuildIndex,
   } = useDriveData(token)
@@ -128,6 +128,13 @@ export default function App() {
       {authError && (
         <div style={{ ...styles.loadingBanner, background: '#c62828' }}>
           {authError}
+        </div>
+      )}
+
+      {/* Drive data error (init or rebuild failure) */}
+      {driveError && (
+        <div style={{ ...styles.loadingBanner, background: '#c62828' }}>
+          {driveError}
         </div>
       )}
 

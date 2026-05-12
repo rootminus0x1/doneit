@@ -108,6 +108,8 @@ export function MapView({
 
   // Increments whenever the style finishes loading, triggering layer effects
   const [mapVersion, setMapVersion] = useState(0)
+  // True once style.load has fired at least once — used to suppress tile-level error noise
+  const styleLoadedRef = useRef(false)
 
   // Create the map once. Destroyed only on unmount — style switches use setStyle below.
   useEffect(() => {
@@ -136,11 +138,18 @@ export function MapView({
     })
 
     map.on('error', e => {
-      onErrorRef.current(e.error?.message ?? 'Map error')
+      // Only surface errors before the first style.load — after that, errors are mostly
+      // transient tile fetch failures (404, rate limit) which the user can't action.
+      if (!styleLoadedRef.current) {
+        onErrorRef.current(e.error?.message ?? 'Map error')
+      } else {
+        console.error('[MapView]', e.error?.message ?? e)
+      }
     })
 
     // style.load fires on initial load AND after every setStyle call
     map.on('style.load', () => {
+      styleLoadedRef.current = true
       onStyleLoadRef.current?.(loadedSourceIdRef.current!)
       const b = map.getBounds()
       onBoundsChangeRef.current({
@@ -204,7 +213,10 @@ export function MapView({
       const sid = `track-${track.fileId}`
       const lid = `track-line-${track.fileId}`
       const cat = catLookup[track.category]
-      if (!cat) throw new Error(`Track ${track.fileId} has unknown category "${track.category}"`)
+      if (!cat) {
+        console.warn(`Skipping track ${track.fileId}: unknown category "${track.category}" — rebuild index to fix`)
+        continue
+      }
 
       if (!map.getSource(sid)) {
         map.addSource(sid, { type: 'geojson', data: track.geojson })

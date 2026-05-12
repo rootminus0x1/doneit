@@ -19,6 +19,7 @@ export interface DriveDataState {
   ready: boolean
   building: boolean
   progress: string | null
+  error: string | null
   trackIndex: TrackIndex | null
   categories: TrackCategory[]
   peakSets: ParsedPeaks[]
@@ -52,6 +53,7 @@ export function useDriveData(token: string | null): DriveDataState {
   const [ready, setReady] = useState(false)
   const [building, setBuilding] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [trackIndex, setTrackIndex] = useState<TrackIndex | null>(null)
   const [categories, setCategories] = useState<TrackCategory[]>([])
   const [peakSets, setPeakSets] = useState<ParsedPeaks[]>([])
@@ -120,6 +122,7 @@ export function useDriveData(token: string | null): DriveDataState {
 
   const init = useCallback(async (tok: string | null) => {
     setReady(false)
+    setError(null)
     try {
       const rootId = await api.getRootFolderId(tok)
       await loadPeaks(tok, rootId)
@@ -167,6 +170,8 @@ export function useDriveData(token: string | null): DriveDataState {
         index = await buildIndex(tok, tracksFId, cats)
       }
       setTrackIndex(index)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setReady(true)
     }
@@ -174,8 +179,13 @@ export function useDriveData(token: string | null): DriveDataState {
 
   const rebuildIndex = useCallback(async () => {
     if (!isReady(token) || !tracksFolderId || categories.length === 0) return
-    const index = await buildIndex(token, tracksFolderId, categories)
-    setTrackIndex(index)
+    setError(null)
+    try {
+      const index = await buildIndex(token, tracksFolderId, categories)
+      setTrackIndex(index)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }, [token, tracksFolderId, categories, buildIndex])
 
   useEffect(() => {
@@ -190,5 +200,5 @@ export function useDriveData(token: string | null): DriveDataState {
     init(token)
   }, [token, init])
 
-  return { ready, building, progress, trackIndex, categories, peakSets, tracksFolderId, rebuildIndex }
+  return { ready, building, progress, error, trackIndex, categories, peakSets, tracksFolderId, rebuildIndex }
 }

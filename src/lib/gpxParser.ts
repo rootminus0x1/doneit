@@ -38,6 +38,8 @@ function extractText(doc: Document, selector: string): string | null {
 
 export function parseTrackGpx(gpxText: string, fallbackName: string): ParsedTrack {
   const doc = new DOMParser().parseFromString(gpxText, 'application/xml')
+  const parseError = doc.querySelector('parsererror')
+  if (parseError) throw new Error(`Invalid GPX: ${parseError.textContent?.trim().slice(0, 120)}`)
   const geojson = gpx(doc) as FeatureCollection
 
   const trackFeatures = geojson.features.filter(
@@ -69,6 +71,8 @@ export function parseTrackGpx(gpxText: string, fallbackName: string): ParsedTrac
 
 export function parsePeaksGpx(gpxText: string, category: string): ParsedPeaks {
   const doc = new DOMParser().parseFromString(gpxText, 'application/xml')
+  const parseError = doc.querySelector('parsererror')
+  if (parseError) throw new Error(`Invalid GPX in ${category}: ${parseError.textContent?.trim().slice(0, 120)}`)
   const geojson = gpx(doc) as FeatureCollection
 
   const pointFeatures = geojson.features.filter(
