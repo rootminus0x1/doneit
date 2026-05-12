@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api, isReady } from '../lib/dataApi'
 import { parseTrackGpx, parsePeaksGpx, filenameToCategoryLabel } from '../lib/gpxParser'
+import { lookupCountry } from '../lib/countryLookup'
 import type { TrackIndex, IndexEntry } from '../lib/spatialIndex'
 import type { ParsedPeaks } from '../lib/gpxParser'
 
@@ -95,12 +96,16 @@ export function useDriveData(token: string | null): DriveDataState {
         try {
           const text = await api.readFileText(tok, f.id)
           const parsed = parseTrackGpx(text, f.name)
+          const lng = (parsed.bbox.west + parsed.bbox.east) / 2
+          const lat = (parsed.bbox.south + parsed.bbox.north) / 2
+          const country = await lookupCountry(lng, lat).catch(() => null)
           entries.push({
             fileId: f.id,
             filename: f.name,
             category: cat.name,
             displayName: parsed.displayName,
             date: parsed.date,
+            country,
             bbox: parsed.bbox,
           })
         } catch {

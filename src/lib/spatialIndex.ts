@@ -6,6 +6,7 @@ export interface IndexEntry {
   category: string
   displayName: string
   date: string | null
+  country: string | null
   bbox: TrackBbox
 }
 
