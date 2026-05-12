@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import type { TrackCategory } from '../hooks/useDriveData'
 import type { IndexEntry } from '../lib/spatialIndex'
 import type { ParsedPeaks } from '../lib/gpxParser'
@@ -26,6 +27,39 @@ export function Sidebar({
   peakSets,
   indexGenerated, indexTrackCount, building, progress, onRebuild,
 }: Props) {
+  const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set())
+
+  const catLookup = useMemo(
+    () => new Map(categories.map(c => [c.name, c])),
+    [categories]
+  )
+
+  const tracksByCountry = useMemo(() => {
+    const map = new Map<string, IndexEntry[]>()
+    for (const t of visibleTracks) {
+      const key = t.country ?? 'Unknown'
+      const bucket = map.get(key)
+      if (bucket) bucket.push(t)
+      else map.set(key, [t])
+    }
+    return new Map(
+      [...map.entries()].sort(([a], [b]) => {
+        if (a === 'Unknown') return 1
+        if (b === 'Unknown') return -1
+        return a.localeCompare(b)
+      })
+    )
+  }, [visibleTracks])
+
+  function toggleCountry(country: string) {
+    setExpandedCountries(prev => {
+      const next = new Set(prev)
+      if (next.has(country)) next.delete(country)
+      else next.add(country)
+      return next
+    })
+  }
+
   return (
     <>
       {open && <div style={styles.backdrop} />}
@@ -36,32 +70,57 @@ export function Sidebar({
         </div>
 
         <div style={styles.body}>
-          {/* Tracks by category */}
+          {/* Tracks grouped by country > category */}
           <Section label="Tracks">
-            {categories.map(cat => (
-              <div key={cat.name}>
-                <div style={styles.categoryRow}>
-                  <span style={{ ...styles.swatch, background: cat.color }} />
-                  <span style={styles.categoryLabel}>{cat.label}</span>
-                </div>
-                {visibleTracks
-                  .filter(t => t.category === cat.name)
-                  .map(t => (
-                    <div key={t.fileId} style={styles.trackRow}>
-                      <button
-                        style={styles.trackBtn}
-                        onClick={() => onFlyToTrack(t.bbox)}
-                      >
-                        <span style={styles.trackName}>{t.displayName}</span>
-                        {t.date && <span style={styles.trackDate}>{t.date}</span>}
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            ))}
-            {categories.length === 0 && (
+            {tracksByCountry.size === 0 && categories.length === 0 && (
               <p style={styles.empty}>No track categories found in Drive</p>
             )}
+            {[...tracksByCountry.entries()].map(([country, tracks]) => {
+              const expanded = expandedCountries.has(country)
+              return (
+                <div key={country}>
+                  <button style={styles.countryRow} onClick={() => toggleCountry(country)}>
+                    <span style={styles.chevron}>{expanded ? '▾' : '▸'}</span>
+                    <span style={styles.countryName}>{country}</span>
+                    <span style={styles.count}>{tracks.length}</span>
+                  </button>
+                  {expanded && (
+                    <div style={styles.countryContent}>
+                      {categories.map(cat => {
+                        const catTracks = tracks.filter(t => t.category === cat.name)
+                        if (catTracks.length === 0) return null
+                        return (
+                          <div key={cat.name}>
+                            <div style={styles.categoryRow}>
+                              <span style={{ ...styles.swatch, background: cat.color }} />
+                              <span style={styles.categoryLabel}>{cat.label}</span>
+                              <span style={styles.count}>{catTracks.length}</span>
+                            </div>
+                            {catTracks.map(t => (
+                              <div key={t.fileId} style={styles.trackRow}>
+                                <button style={styles.trackBtn} onClick={() => onFlyToTrack(t.bbox)}>
+                                  <span style={styles.trackName}>{t.displayName}</span>
+                                  {t.date && <span style={styles.trackDate}>{t.date}</span>}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })}
+                      {/* tracks whose category isn't in the categories list */}
+                      {tracks.filter(t => !catLookup.has(t.category)).map(t => (
+                        <div key={t.fileId} style={styles.trackRow}>
+                          <button style={styles.trackBtn} onClick={() => onFlyToTrack(t.bbox)}>
+                            <span style={styles.trackName}>{t.displayName}</span>
+                            {t.date && <span style={styles.trackDate}>{t.date}</span>}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </Section>
 
           {/* Peaks */}
@@ -138,8 +197,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11, fontWeight: 600, color: '#888',
     textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8,
   },
+  countryRow: {
+    display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+    background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+    padding: '5px 0',
+  },
+  chevron: { fontSize: 10, color: '#999', width: 12, flexShrink: 0 },
+  countryName: { fontSize: 14, fontWeight: 600, flex: 1, color: '#222' },
+  countryContent: { paddingLeft: 12 },
   categoryRow: {
-    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, marginTop: 4,
+    display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, marginTop: 6,
   },
   swatch: { width: 12, height: 12, borderRadius: 2, flexShrink: 0 },
   categoryLabel: { fontSize: 14, fontWeight: 500 },

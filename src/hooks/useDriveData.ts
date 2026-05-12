@@ -96,9 +96,16 @@ export function useDriveData(token: string | null): DriveDataState {
         try {
           const text = await api.readFileText(tok, f.id)
           const parsed = parseTrackGpx(text, f.name)
-          const lng = (parsed.bbox.west + parsed.bbox.east) / 2
-          const lat = (parsed.bbox.south + parsed.bbox.north) / 2
-          const country = await lookupCountry(lng, lat).catch(() => null)
+          const { west, east, south, north } = parsed.bbox
+          const candidates: [number, number][] = [
+            [(west + east) / 2, (south + north) / 2],
+            [west, south], [east, south], [west, north], [east, north],
+          ]
+          let country: string | null = null
+          for (const [cLng, cLat] of candidates) {
+            country = await lookupCountry(cLng, cLat).catch(() => null)
+            if (country) break
+          }
           entries.push({
             fileId: f.id,
             filename: f.name,

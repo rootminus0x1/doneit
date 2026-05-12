@@ -49,7 +49,10 @@ export async function lookupCountry(lng: number, lat: number): Promise<string | 
         if (pointInPolygon(lng, lat, poly as number[][][])) { hit = true; break }
       }
     }
-    if (hit) return properties.ADMIN || properties.NAME || null
+    if (hit) {
+      const { name, geonunit, admin } = properties
+      return (geonunit && geonunit !== admin ? geonunit : name) || null
+    }
   }
   return null  // open water or not in 110m dataset
 }
