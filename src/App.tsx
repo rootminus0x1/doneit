@@ -32,6 +32,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [viewport, setViewport] = useState<TrackBbox | null>(null)
   const [flyToBbox, setFlyToBbox] = useState<TrackBbox | null>(null)
+  const [mapError, setMapError] = useState<string | null>(null)
+  const lastGoodSourceIdRef = useRef<string | null>(null)
   const [popup, setPopup] = useState<{ title: string; body: string } | null>(null)
 
   const loadedTracks = useViewportTracks(token, trackIndex, viewport, categories)
@@ -55,6 +57,21 @@ export default function App() {
     })
   }, [])
 
+  const handleStyleLoad = useCallback((sourceId: string) => {
+    lastGoodSourceIdRef.current = sourceId
+    setMapError(null)
+  }, [])
+
+  const handleMapError = useCallback((message: string) => {
+    setMapError(message)
+  }, [])
+
+  const handleStyleFail = useCallback((message: string) => {
+    setMapError(message)
+    const fallback = lastGoodSourceIdRef.current
+    if (fallback) setSource(fallback)
+  }, [setSource])
+
   const allIndexedTracks = trackIndex?.tracks ?? []
 
   return (
@@ -72,6 +89,9 @@ export default function App() {
           onBoundsChange={setViewport}
           onTrackClick={handleTrackClick}
           onPeakClick={handlePeakClick}
+          onError={handleMapError}
+          onStyleLoad={handleStyleLoad}
+          onStyleFail={handleStyleFail}
           flyToBbox={flyToBbox}
         />
       )}
@@ -115,6 +135,13 @@ export default function App() {
       {loadError && (
         <div style={{ ...styles.loadingBanner, background: '#c62828' }}>
           Map config error: {loadError}
+        </div>
+      )}
+
+      {/* Map style load error */}
+      {mapError && (
+        <div style={{ ...styles.loadingBanner, background: '#c62828' }}>
+          Map style error: {mapError}
         </div>
       )}
 

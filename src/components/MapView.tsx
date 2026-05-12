@@ -40,6 +40,9 @@ interface Props {
   onMove: (center: [number, number], zoom: number) => void
   onTrackClick: (fileId: string) => void
   onPeakClick: (name: string, elevation: number, category: string) => void
+  onError: (message: string) => void
+  onStyleLoad?: (sourceId: string) => void
+  onStyleFail?: (message: string) => void
   flyToBbox?: TrackBbox | null
 }
 
@@ -77,6 +80,9 @@ export function MapView({
   onMove,
   onTrackClick,
   onPeakClick,
+  onError,
+  onStyleLoad,
+  onStyleFail,
   flyToBbox,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -89,10 +95,16 @@ export function MapView({
   const onMoveRef = useRef(onMove)
   const onTrackClickRef = useRef(onTrackClick)
   const onPeakClickRef = useRef(onPeakClick)
+  const onErrorRef = useRef(onError)
+  const onStyleLoadRef = useRef(onStyleLoad)
+  const onStyleFailRef = useRef(onStyleFail)
   useEffect(() => { onBoundsChangeRef.current = onBoundsChange })
   useEffect(() => { onMoveRef.current = onMove })
   useEffect(() => { onTrackClickRef.current = onTrackClick })
   useEffect(() => { onPeakClickRef.current = onPeakClick })
+  useEffect(() => { onErrorRef.current = onError })
+  useEffect(() => { onStyleLoadRef.current = onStyleLoad })
+  useEffect(() => { onStyleFailRef.current = onStyleFail })
 
   // Increments whenever the style finishes loading, triggering layer effects
   const [mapVersion, setMapVersion] = useState(0)
@@ -123,8 +135,13 @@ export function MapView({
       })
     })
 
+    map.on('error', e => {
+      onErrorRef.current(e.error?.message ?? 'Map error')
+    })
+
     // style.load fires on initial load AND after every setStyle call
     map.on('style.load', () => {
+      onStyleLoadRef.current?.(loadedSourceIdRef.current!)
       const b = map.getBounds()
       onBoundsChangeRef.current({
         west: b.getWest(), east: b.getEast(),
@@ -141,10 +158,35 @@ export function MapView({
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // When the source prop changes, update the style in place — no remount.
-  // transformStyle preserves our custom track/peak layers so they stay visible.
+  // For vector sources, fetch and validate the style URL before calling setStyle so a
+  // bad URL never reaches MapLibre (which can hang internally without emitting an error).
   useEffect(() => {
     const map = mapRef.current
     if (!map || loadedSourceIdRef.current === source.id) return
+
+    if (source.type === 'vector' && source.styleUrl) {
+      const controller = new AbortController()
+      fetch(source.styleUrl, { signal: controller.signal })
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.json() as Promise<unknown>
+        })
+        .then(json => {
+          if (controller.signal.aborted) return
+          if (typeof (json as Record<string, unknown>).version !== 'number') {
+            throw new Error('Response is not a MapLibre style document')
+          }
+          loadedSourceIdRef.current = source.id
+          map.setStyle(source.styleUrl!, { transformStyle: preserveCustomLayers })
+        })
+        .catch((err: unknown) => {
+          if ((err as { name?: string }).name === 'AbortError') return
+          const msg = err instanceof Error ? err.message : String(err)
+          onStyleFailRef.current?.(`Cannot load "${source.label}": ${msg}`)
+        })
+      return () => { controller.abort() }
+    }
+
     loadedSourceIdRef.current = source.id
     map.setStyle(styleFor(source), { transformStyle: preserveCustomLayers })
   }, [source])
