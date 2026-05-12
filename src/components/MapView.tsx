@@ -3,12 +3,19 @@ import maplibregl, { type LngLatBoundsLike, type StyleSpecification, type Source
 import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { TileSource } from '../lib/tileConfig'
+import { buildRasterStyle } from '../lib/tileConfig'
 import type { TrackCategory } from '../hooks/useDriveData'
 import type { FeatureCollection, LineString, Point } from 'geojson'
 import type { TrackBbox } from '../lib/gpxParser'
 
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)
+
+function styleFor(source: TileSource): string | StyleSpecification {
+  return source.type === 'raster'
+    ? buildRasterStyle(source) as StyleSpecification
+    : source.styleUrl!
+}
 
 export interface LoadedTrack {
   fileId: string
@@ -96,7 +103,7 @@ export function MapView({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: source.styleUrl!,
+      style: styleFor(source),
       center: initialCenter,
       zoom: initialZoom,
       attributionControl: false,
@@ -139,7 +146,7 @@ export function MapView({
     const map = mapRef.current
     if (!map || loadedSourceIdRef.current === source.id) return
     loadedSourceIdRef.current = source.id
-    map.setStyle(source.styleUrl!, { transformStyle: preserveCustomLayers })
+    map.setStyle(styleFor(source), { transformStyle: preserveCustomLayers })
   }, [source])
 
   // Sync track layers — reruns when tracks change or after style loads

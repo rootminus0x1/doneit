@@ -10,9 +10,6 @@ Example: MapView keeps the same MapLibre instance alive across style switches an
 ### File-driven configuration
 No category names, source lists, or layer counts are hardcoded. The app discovers all configuration by reading the data source (Drive or local files) at startup.
 
-### Vector tiles only
-Only vector tile sources (MapLibre style JSON with `styleUrl`) are supported. Raster tile sources are not used. Do not add raster support to `tileConfig.ts` or `MapView.tsx`, and do not include raster entries in `tile-sources.json`.
-
 ### No silent fallbacks
 Do not swallow errors or substitute placeholder data when something fails to load. Silent fallbacks mask real problems — the user sees a working-looking app when it is actually broken. Instead, propagate errors and surface them visibly (error banner, thrown exception). The only acceptable silent behaviour is skipping a single malformed item in a list (e.g. one unreadable GPX file) when others can still be shown.
 

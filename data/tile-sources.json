@@ -18,12 +18,33 @@
     "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#f2ece3'/><rect x='4' y='4' width='20' height='20' fill='#e4dbd0'/><rect x='40' y='4' width='20' height='14' fill='#e4dbd0'/><rect x='40' y='42' width='20' height='18' fill='#e4dbd0'/><rect x='4' y='40' width='20' height='20' fill='#cde8b4'/><rect x='0' y='27' width='64' height='10' fill='#ffffff'/><rect x='27' y='0' width='10' height='64' fill='#ffffff'/><rect x='0' y='27' width='64' height='10' stroke='#d4ccc0' stroke-width='0.5' fill='none'/><rect x='27' y='0' width='10' height='64' stroke='#d4ccc0' stroke-width='0.5' fill='none'/></svg>"
   },
   {
-    "id": "stadia-dark",
-    "label": "Dark",
-    "type": "vector",
-    "styleUrl": "https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json",
-    "attribution": "© <a href='https://stadiamaps.com/'>Stadia Maps</a> © <a href='https://openmaptiles.org/'>OpenMapTiles</a> © <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>",
-    "thumbColor": "#2a2a3a",
-    "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#1a1a2e'/><rect x='4' y='4' width='20' height='20' fill='#252538'/><rect x='40' y='4' width='20' height='14' fill='#252538'/><rect x='40' y='42' width='20' height='18' fill='#252538'/><rect x='4' y='40' width='20' height='20' fill='#1e3028'/><rect x='0' y='27' width='64' height='10' fill='#2e2e48'/><rect x='27' y='0' width='10' height='64' fill='#2e2e48'/></svg>"
+    "id": "opentopomap",
+    "label": "Topo",
+    "type": "raster",
+    "tileUrl": "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    "tileSize": 256,
+    "attribution": "© <a href='https://opentopomap.org/'>OpenTopoMap</a> (CC-BY-SA) · map data © <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors, SRTM",
+    "thumbColor": "#e8dcc8",
+    "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#ede5d0'/><path d='M0,50 Q16,42 32,46 Q48,50 64,42' stroke='#c8a060' stroke-width='1.2' fill='none'/><path d='M0,40 Q16,32 32,36 Q48,40 64,32' stroke='#c8a060' stroke-width='1.2' fill='none'/><path d='M0,30 Q16,22 32,26 Q48,30 64,22' stroke='#c8a060' stroke-width='1.2' fill='none'/><path d='M0,20 Q16,12 32,16 Q48,20 64,12' stroke='#c8a060' stroke-width='1.2' fill='none'/><polygon points='32,6 50,30 14,30' fill='#b0c890' stroke='#789050' stroke-width='1'/><circle cx='54' cy='54' r='8' fill='white' stroke='#666' stroke-width='1'/><line x1='54' y1='54' x2='54' y2='47.5' stroke='#333' stroke-width='1.2' stroke-linecap='round'/><line x1='54' y1='54' x2='59.5' y2='54' stroke='#333' stroke-width='1.5' stroke-linecap='round'/></svg>"
+  },
+  {
+    "id": "opencyclemap",
+    "label": "Cycle",
+    "type": "raster",
+    "tileUrl": "https://{s}.tile.thunderforest.com/cycle/{z}/{x}/{y}.png?apikey=ea8ecf150c4f45df92f7f23a5e4c979d",
+    "tileSize": 256,
+    "attribution": "© <a href='https://www.thunderforest.com/'>Thunderforest</a> · map data © <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+    "thumbColor": "#e0ecd4",
+    "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#eef6e4'/><rect x='0' y='26' width='64' height='7' fill='#ddd8c0'/><rect x='26' y='0' width='7' height='64' fill='#ddd8c0'/><path d='M0,32 Q18,18 38,22 Q52,25 64,18' stroke='#d04040' stroke-width='2.5' fill='none'/><circle cx='54' cy='54' r='8' fill='white' stroke='#666' stroke-width='1'/><line x1='54' y1='54' x2='54' y2='47.5' stroke='#333' stroke-width='1.2' stroke-linecap='round'/><line x1='54' y1='54' x2='59.5' y2='54' stroke='#333' stroke-width='1.5' stroke-linecap='round'/></svg>"
+  },
+  {
+    "id": "esri-satellite",
+    "label": "Satellite",
+    "type": "raster",
+    "tileUrl": "https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    "tileSize": 256,
+    "attribution": "© <a href='https://www.esri.com/'>Esri</a> · Sources: Esri, Maxar, Earthstar Geographics",
+    "thumbColor": "#1a2a10",
+    "icon": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='#182010'/><rect x='3' y='3' width='27' height='19' fill='#243818' rx='1'/><rect x='34' y='3' width='27' height='27' fill='#1c2e10' rx='1'/><rect x='3' y='26' width='19' height='19' fill='#3a5020' rx='1'/><rect x='26' y='34' width='35' height='27' fill='#223018' rx='1'/><rect x='3' y='49' width='19' height='12' fill='#182810' rx='1'/><circle cx='54' cy='54' r='8' fill='white' stroke='#888' stroke-width='1'/><line x1='54' y1='54' x2='54' y2='47.5' stroke='#333' stroke-width='1.2' stroke-linecap='round'/><line x1='54' y1='54' x2='59.5' y2='54' stroke='#333' stroke-width='1.5' stroke-linecap='round'/></svg>"
   }
 ]
