@@ -3,11 +3,17 @@ import { api, isReady } from './dataApi'
 export interface TileSource {
   id: string
   label: string
-  type: 'vector' | 'raster'
+  // vector: external MapLibre style URL (Stadia, etc.)
+  // raster: XYZ tile URL template
+  // pmtiles-drive: Drive-hosted PMTiles file; styleUrl is a MapLibre style that
+  //   references pmtiles://{fileId} as its vector source — registered via
+  //   registerDrivePMTiles() before setStyle is called
+  type: 'vector' | 'raster' | 'pmtiles-drive'
   styleUrl?: string
   tileUrl?: string
-  attribution: string
   tileSize?: number
+  fileId?: string          // Drive file ID of the .pmtiles data file (pmtiles-drive only)
+  attribution: string
   thumbColor: string
   icon: string             // SVG string shown in the style selector thumbnail
 }

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { queryByBbox } from '../lib/spatialIndex'
 import { parseTrackGpx } from '../lib/gpxParser'
 import { api, isReady } from '../lib/dataApi'
-import type { TrackIndex } from '../lib/spatialIndex'
+import type { TrackIndex, IndexEntry } from '../lib/spatialIndex'
 import type { TrackBbox } from '../lib/gpxParser'
 import type { FeatureCollection, LineString } from 'geojson'
 import type { TrackCategory } from './useDriveData'
@@ -25,40 +25,32 @@ export function useViewportTracks(
   const cacheRef = useRef<Map<string, LoadedTrack>>(new Map())
   const loadingRef = useRef<Set<string>>(new Set())
 
-  const loadTracks = useCallback(async (
-    tok: string | null,
-    fileIds: string[],
-    index: TrackIndex
-  ) => {
-    const toLoad = fileIds.filter(id => !cacheRef.current.has(id) && !loadingRef.current.has(id))
+  const loadTracks = useCallback(async (tok: string | null, entries: IndexEntry[]) => {
+    const toLoad = entries.filter(e => !cacheRef.current.has(e.fileId) && !loadingRef.current.has(e.fileId))
     if (toLoad.length === 0) return
 
-    toLoad.forEach(id => loadingRef.current.add(id))
+    toLoad.forEach(e => loadingRef.current.add(e.fileId))
 
     const CONCURRENCY = 5
     for (let i = 0; i < toLoad.length; i += CONCURRENCY) {
       const batch = toLoad.slice(i, i + CONCURRENCY)
-      await Promise.all(batch.map(async fileId => {
-        const entry = index.tracks.find(t => t.fileId === fileId)
-        if (!entry) return
+      await Promise.all(batch.map(async entry => {
         try {
-          const text = await api.readFileText(tok, fileId)
+          const text = await api.readFileText(tok, entry.fileId)
           const parsed = parseTrackGpx(text, entry.filename)
-          const loaded: LoadedTrack = {
-            fileId,
+          cacheRef.current.set(entry.fileId, {
+            fileId: entry.fileId,
             category: entry.category,
             displayName: entry.displayName,
             date: entry.date,
             geojson: parsed.geojson,
-          }
-          cacheRef.current.set(fileId, loaded)
+          })
         } catch {
-          // skip unreadable tracks
+          // skip unreadable track
         } finally {
-          loadingRef.current.delete(fileId)
+          loadingRef.current.delete(entry.fileId)
         }
       }))
-
       setLoadedTracks([...cacheRef.current.values()])
     }
   }, [])
@@ -75,10 +67,10 @@ export function useViewportTracks(
     })
 
     if (matching.length === 0) return
-    loadTracks(token, matching.map(e => e.fileId), trackIndex)
+    loadTracks(token, matching)
   }, [token, trackIndex, viewport, categories, loadTracks])
 
-  // Clear cache on sign-out (Drive mode only)
+  // Clear cache on sign-out
   useEffect(() => {
     if (!isReady(token)) {
       cacheRef.current.clear()

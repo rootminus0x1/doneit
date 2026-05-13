@@ -8,6 +8,7 @@ export interface IndexEntry {
   date: string | null
   country: string | null
   bbox: TrackBbox
+
 }
 
 export interface TrackIndex {

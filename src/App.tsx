@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useGoogleAuth } from './hooks/useGoogleAuth'
 import { useDriveData } from './hooks/useDriveData'
 import { useTileSource } from './hooks/useTileSource'
@@ -8,6 +8,7 @@ import { MapControls } from './components/MapControls'
 import { MapStyleSelector } from './components/MapStyleSelector'
 import { Sidebar } from './components/Sidebar'
 import type { TrackBbox } from './lib/gpxParser'
+import { registerDrivePMTiles } from './lib/drivepmtiles'
 
 const PEAK_COLORS = [
   '#f59e0b', '#6366f1', '#ec4899', '#14b8a6', '#f97316',
@@ -31,10 +32,23 @@ export default function App() {
 
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [viewport, setViewport] = useState<TrackBbox | null>(null)
+
   const [flyToBbox, setFlyToBbox] = useState<TrackBbox | null>(null)
   const [mapError, setMapError] = useState<string | null>(null)
   const lastGoodSourceIdRef = useRef<string | null>(null)
   const [popup, setPopup] = useState<{ title: string; body: string } | null>(null)
+
+  // Keep a ref so DriveSource closures always use the current token without re-registering
+  const tokenRef = useRef(token)
+  tokenRef.current = token
+
+  // Register any Drive-hosted PMTiles base maps with the shared protocol.
+  // Runs whenever the source list changes (e.g. after tile-sources.json loads).
+  useEffect(() => {
+    allSources
+      .filter(s => s.type === 'pmtiles-drive' && s.fileId)
+      .forEach(s => registerDrivePMTiles(s.fileId!, () => tokenRef.current ?? ''))
+  }, [allSources])
 
   const loadedTracks = useViewportTracks(token, trackIndex, viewport, categories)
 

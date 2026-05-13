@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl, { type LngLatBoundsLike, type StyleSpecification, type SourceSpecification } from 'maplibre-gl'
-import { Protocol } from 'pmtiles'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import '../lib/drivepmtiles'  // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig'
 import { buildRasterStyle } from '../lib/tileConfig'
 import type { TrackCategory } from '../hooks/useDriveData'
 import type { FeatureCollection, LineString, Point } from 'geojson'
 import type { TrackBbox } from '../lib/gpxParser'
 
-const protocol = new Protocol()
-maplibregl.addProtocol('pmtiles', protocol.tile)
 
 function styleFor(source: TileSource): string | StyleSpecification {
   return source.type === 'raster'
@@ -173,7 +171,7 @@ export function MapView({
     const map = mapRef.current
     if (!map || loadedSourceIdRef.current === source.id) return
 
-    if (source.type === 'vector' && source.styleUrl) {
+    if ((source.type === 'vector' || source.type === 'pmtiles-drive') && source.styleUrl) {
       const controller = new AbortController()
       fetch(source.styleUrl, { signal: controller.signal })
         .then(r => {
