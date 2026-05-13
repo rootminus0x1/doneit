@@ -87,37 +87,41 @@ export function useDriveData(token: string | null): DriveDataState {
     setBuilding(true)
     const entries: IndexEntry[] = []
 
+    const CONCURRENCY = 5
     for (const cat of cats) {
       const gpxFiles = await api.listFiles(tok, cat.id, { nameContains: '.gpx' })
-      let i = 0
-      for (const f of gpxFiles) {
-        i++
-        setProgress(`${cat.label}: ${i}/${gpxFiles.length} — ${f.name}`)
-        try {
-          const text = await api.readFileText(tok, f.id)
-          const parsed = parseTrackGpx(text, f.name)
-          const { west, east, south, north } = parsed.bbox
-          const candidates: [number, number][] = [
-            [(west + east) / 2, (south + north) / 2],
-            [west, south], [east, south], [west, north], [east, north],
-          ]
-          let country: string | null = null
-          for (const [cLng, cLat] of candidates) {
-            country = await lookupCountry(cLng, cLat).catch(() => null)
-            if (country) break
+      let done = 0
+      for (let i = 0; i < gpxFiles.length; i += CONCURRENCY) {
+        const batch = gpxFiles.slice(i, i + CONCURRENCY)
+        await Promise.all(batch.map(async f => {
+          const n = ++done
+          setProgress(`${cat.label}: ${n}/${gpxFiles.length} — ${f.name}`)
+          try {
+            const text = await api.readFileText(tok, f.id)
+            const parsed = parseTrackGpx(text, f.name)
+            const { west, east, south, north } = parsed.bbox
+            const candidates: [number, number][] = [
+              [(west + east) / 2, (south + north) / 2],
+              [west, south], [east, south], [west, north], [east, north],
+            ]
+            let country: string | null = null
+            for (const [cLng, cLat] of candidates) {
+              country = await lookupCountry(cLng, cLat).catch(() => null)
+              if (country) break
+            }
+            entries.push({
+              fileId: f.id,
+              filename: f.name,
+              category: cat.name,
+              displayName: parsed.displayName,
+              date: parsed.date,
+              country,
+              bbox: parsed.bbox,
+            })
+          } catch {
+            // skip unreadable track
           }
-          entries.push({
-            fileId: f.id,
-            filename: f.name,
-            category: cat.name,
-            displayName: parsed.displayName,
-            date: parsed.date,
-            country,
-            bbox: parsed.bbox,
-          })
-        } catch {
-          // skip unreadable track
-        }
+        }))
       }
     }
 
