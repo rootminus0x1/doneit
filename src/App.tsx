@@ -1,13 +1,12 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useGoogleAuth } from './hooks/useGoogleAuth';
 import { useDriveData } from './hooks/useDriveData';
 import { useTileSource } from './hooks/useTileSource';
-import { useViewportTracks } from './hooks/useViewportTracks';
+import { useUnindexedTracks } from './hooks/useViewportTracks';
 import { MapView } from './components/MapView';
 import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
 import { Sidebar } from './components/Sidebar';
-import type { TrackBbox } from './lib/gpxParser';
 import { registerDrivePMTiles } from './lib/drivepmtiles';
 
 const PEAK_COLORS = ['#f59e0b', '#6366f1', '#ec4899', '#14b8a6', '#f97316'];
@@ -16,14 +15,12 @@ export default function App() {
     const { token, signIn, signOut, error: authError } = useGoogleAuth();
     const {
         ready,
-        building,
-        progress,
         error: driveError,
         trackIndex,
         categories,
         peakSets,
         tracksPmtilesFileId,
-        rebuildIndex,
+        unindexedFiles,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
 
@@ -35,19 +32,33 @@ export default function App() {
     }, []);
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [viewport, setViewport] = useState<TrackBbox | null>(null);
-
-    const [flyToBbox, setFlyToBbox] = useState<TrackBbox | null>(null);
+    const [flyToBbox, setFlyToBbox] = useState(null as null | import('./lib/gpxParser').TrackBbox);
     const [mapError, setMapError] = useState<string | null>(null);
     const lastGoodSourceIdRef = useRef<string | null>(null);
     const [popup, setPopup] = useState<{ title: string; body: string } | null>(null);
+
+    const [hiddenCountries, setHiddenCountries] = useState<string[]>([]);
+    const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
+
+    const toggleCountry = useCallback(
+        (c: string) => setHiddenCountries(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
+        [],
+    );
+    const toggleCategory = useCallback(
+        (c: string) => setHiddenCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
+        [],
+    );
+
+    const availableCountries = useMemo(
+        () =>
+            [...new Set((trackIndex?.tracks ?? []).map(t => t.country).filter((c): c is string => c !== null))].sort(),
+        [trackIndex],
+    );
 
     // Keep a ref so DriveSource closures always use the current token without re-registering
     const tokenRef = useRef(token);
     tokenRef.current = token;
 
-    // Register Drive-hosted PMTiles with the shared protocol — both base map sources
-    // and the tracks overlay. Runs whenever either list changes.
     useEffect(() => {
         allSources
             .filter(s => s.type === 'pmtiles-drive' && s.fileId)
@@ -57,11 +68,9 @@ export default function App() {
         }
     }, [allSources, tracksPmtilesFileId]);
 
-    const viewportTracks = useViewportTracks(token, trackIndex, viewport, categories);
-    // When a PMTiles overlay covers all tracks, skip the per-track GPX loads
-    const loadedTracks = tracksPmtilesFileId ? [] : viewportTracks;
+    // Load raw GPX only for files not yet included in the PMTiles build
+    const loadedTracks = useUnindexedTracks(token, unindexedFiles);
 
-    // Assign colours to peak sets
     const loadedPeaks = peakSets.map((ps, i) => ({
         ...ps,
         color: PEAK_COLORS[i % PEAK_COLORS.length],
@@ -70,26 +79,20 @@ export default function App() {
     const handleTrackClick = useCallback(
         (fileId: string) => {
             const entry = trackIndex?.tracks.find(t => t.fileId === fileId);
-            if (!entry) return;
-            setPopup({ title: entry.displayName, body: entry.date ?? '' });
+            if (entry) {
+                setPopup({ title: entry.displayName, body: entry.date ?? '' });
+            }
         },
         [trackIndex],
     );
 
     const handlePeakClick = useCallback((name: string, elevation: number, category: string) => {
-        setPopup({
-            title: name,
-            body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m`,
-        });
+        setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m` });
     }, []);
 
     const handleStyleLoad = useCallback((sourceId: string) => {
         lastGoodSourceIdRef.current = sourceId;
         setMapError(null);
-    }, []);
-
-    const handleMapError = useCallback((message: string) => {
-        setMapError(message);
     }, []);
 
     const handleStyleFail = useCallback(
@@ -101,11 +104,8 @@ export default function App() {
         [setSource],
     );
 
-    const allIndexedTracks = trackIndex?.tracks ?? [];
-
     return (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-            {/* Map fills viewport — only rendered once a source is available */}
             {activeSource && (
                 <MapView
                     source={activeSource}
@@ -115,13 +115,15 @@ export default function App() {
                     categories={categories}
                     loadedTracks={loadedTracks}
                     loadedPeaks={loadedPeaks}
-                    onBoundsChange={setViewport}
+                    onBoundsChange={() => {}}
                     onTrackClick={handleTrackClick}
                     onPeakClick={handlePeakClick}
-                    onError={handleMapError}
+                    onError={msg => setMapError(msg)}
                     onStyleLoad={handleStyleLoad}
                     onStyleFail={handleStyleFail}
                     tracksPmtilesFileId={tracksPmtilesFileId ?? undefined}
+                    hiddenCountries={hiddenCountries}
+                    hiddenCategories={hiddenCategories}
                     flyToBbox={flyToBbox}
                 />
             )}
@@ -133,12 +135,10 @@ export default function App() {
                 onSelect={setSource}
             />
 
-            {/* Hamburger */}
             <button style={styles.hamburger} onClick={() => setSidebarOpen(true)} title="Menu">
                 ☰
             </button>
 
-            {/* Auth button */}
             <div style={styles.authArea}>
                 {token ? (
                     <button style={styles.authBtn} onClick={signOut}>
@@ -151,49 +151,34 @@ export default function App() {
                 )}
             </div>
 
-            {/* Loading indicator */}
-            {token && !ready && (
-                <div style={styles.loadingBanner}>{building ? (progress ?? 'Building index…') : 'Loading…'}</div>
-            )}
+            {token && !ready && <div style={styles.loadingBanner}>Loading…</div>}
 
-            {/* Auth error */}
             {authError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{authError}</div>}
-
-            {/* Drive data error (init or rebuild failure) */}
             {driveError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{driveError}</div>}
-
-            {/* Tile source config error */}
             {loadError && (
                 <div style={{ ...styles.loadingBanner, background: '#c62828' }}>Map config error: {loadError}</div>
             )}
-
-            {/* Map style load error */}
             {mapError && (
                 <div style={{ ...styles.loadingBanner, background: '#c62828' }}>Map style error: {mapError}</div>
             )}
 
-            {/* Location + controls */}
             <MapControls onLocate={setFlyToBbox} />
 
-            {/* Sidebar */}
             <Sidebar
                 open={sidebarOpen}
                 onClose={() => setSidebarOpen(false)}
                 categories={categories}
-                visibleTracks={allIndexedTracks}
-                onFlyToTrack={bbox => {
-                    setFlyToBbox(bbox);
-                    setSidebarOpen(false);
-                }}
+                hiddenCategories={hiddenCategories}
+                onToggleCategory={toggleCategory}
+                countries={availableCountries}
+                hiddenCountries={hiddenCountries}
+                onToggleCountry={toggleCountry}
                 peakSets={peakSets}
+                trackCount={trackIndex?.tracks.length ?? 0}
                 indexGenerated={trackIndex?.generated ?? null}
-                indexTrackCount={trackIndex?.tracks.length ?? 0}
-                building={building}
-                progress={progress}
-                onRebuild={rebuildIndex}
+                unindexedCount={unindexedFiles.length}
             />
 
-            {/* Popup */}
             {popup && (
                 <div style={styles.popupOverlay} onClick={() => setPopup(null)}>
                     <div style={styles.popup} onClick={e => e.stopPropagation()}>
@@ -224,12 +209,7 @@ const styles: Record<string, React.CSSProperties> = {
         cursor: 'pointer',
         fontSize: 20,
     },
-    authArea: {
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        zIndex: 10,
-    },
+    authArea: { position: 'absolute', top: 12, right: 12, zIndex: 10 },
     authBtn: {
         padding: '8px 16px',
         borderRadius: 20,
@@ -275,12 +255,7 @@ const styles: Record<string, React.CSSProperties> = {
         boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
         position: 'relative',
     },
-    popupTitle: {
-        fontSize: 16,
-        fontWeight: 600,
-        marginBottom: 4,
-        paddingRight: 24,
-    },
+    popupTitle: { fontSize: 16, fontWeight: 600, marginBottom: 4, paddingRight: 24 },
     popupBody: { fontSize: 14, color: '#555' },
     popupClose: {
         position: 'absolute',

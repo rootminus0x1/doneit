@@ -1,78 +1,39 @@
-import { useState, useMemo } from 'react';
 import type { TrackCategory } from '../hooks/useDriveData';
-import type { IndexEntry } from '../lib/spatialIndex';
 import type { ParsedPeaks } from '../lib/gpxParser';
-import type { TrackBbox } from '../lib/gpxParser';
 
 interface Props {
     open: boolean;
     onClose: () => void;
-    // track data
     categories: TrackCategory[];
-    visibleTracks: IndexEntry[];
-    onFlyToTrack: (bbox: TrackBbox) => void;
-    // peaks
+    hiddenCategories: string[];
+    onToggleCategory: (name: string) => void;
+    countries: string[];
+    hiddenCountries: string[];
+    onToggleCountry: (country: string) => void;
     peakSets: ParsedPeaks[];
-    // index
+    trackCount: number;
     indexGenerated: string | null;
-    indexTrackCount: number;
-    building: boolean;
-    progress: string | null;
-    onRebuild: () => void;
+    unindexedCount: number;
 }
 
 export function Sidebar({
     open,
     onClose,
     categories,
-    visibleTracks,
-    onFlyToTrack,
+    hiddenCategories,
+    onToggleCategory,
+    countries,
+    hiddenCountries,
+    onToggleCountry,
     peakSets,
+    trackCount,
     indexGenerated,
-    indexTrackCount,
-    building,
-    progress,
-    onRebuild,
+    unindexedCount,
 }: Props) {
-    const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set());
-
-    const catLookup = useMemo(() => new Map(categories.map(c => [c.name, c])), [categories]);
-
-    const tracksByCountry = useMemo(() => {
-        const map = new Map<string, IndexEntry[]>();
-        for (const t of visibleTracks) {
-            const key = t.country ?? 'Unknown';
-            const bucket = map.get(key);
-            if (bucket) bucket.push(t);
-            else map.set(key, [t]);
-        }
-        return new Map(
-            [...map.entries()].sort(([a], [b]) => {
-                if (a === 'Unknown') return 1;
-                if (b === 'Unknown') return -1;
-                return a.localeCompare(b);
-            }),
-        );
-    }, [visibleTracks]);
-
-    function toggleCountry(country: string) {
-        setExpandedCountries(prev => {
-            const next = new Set(prev);
-            if (next.has(country)) next.delete(country);
-            else next.add(country);
-            return next;
-        });
-    }
-
     return (
         <>
             {open && <div style={styles.backdrop} />}
-            <div
-                style={{
-                    ...styles.drawer,
-                    transform: open ? 'translateX(0)' : 'translateX(-100%)',
-                }}
-            >
+            <div style={{ ...styles.drawer, transform: open ? 'translateX(0)' : 'translateX(-100%)' }}>
                 <div style={styles.header}>
                     <span style={styles.title}>Done It</span>
                     <button style={styles.closeBtn} onClick={onClose}>
@@ -81,102 +42,72 @@ export function Sidebar({
                 </div>
 
                 <div style={styles.body}>
-                    {/* Tracks grouped by country > category */}
-                    <Section label="Tracks">
-                        {tracksByCountry.size === 0 && categories.length === 0 && (
-                            <p style={styles.empty}>No track categories found in Drive</p>
-                        )}
-                        {[...tracksByCountry.entries()].map(([country, tracks]) => {
-                            const expanded = expandedCountries.has(country);
+                    {/* Category visibility */}
+                    <Section label="Categories">
+                        {categories.map(cat => {
+                            const hidden = hiddenCategories.includes(cat.name);
                             return (
-                                <div key={country}>
-                                    <button style={styles.countryRow} onClick={() => toggleCountry(country)}>
-                                        <span style={styles.chevron}>{expanded ? '▾' : '▸'}</span>
-                                        <span style={styles.countryName}>{country}</span>
-                                        <span style={styles.count}>{tracks.length}</span>
-                                    </button>
-                                    {expanded && (
-                                        <div style={styles.countryContent}>
-                                            {categories.map(cat => {
-                                                const catTracks = tracks.filter(t => t.category === cat.name);
-                                                if (catTracks.length === 0) return null;
-                                                return (
-                                                    <div key={cat.name}>
-                                                        <div style={styles.categoryRow}>
-                                                            <span
-                                                                style={{
-                                                                    ...styles.swatch,
-                                                                    background: cat.color,
-                                                                }}
-                                                            />
-                                                            <span style={styles.categoryLabel}>{cat.label}</span>
-                                                            <span style={styles.count}>{catTracks.length}</span>
-                                                        </div>
-                                                        {catTracks.map(t => (
-                                                            <div key={t.fileId} style={styles.trackRow}>
-                                                                <button
-                                                                    style={styles.trackBtn}
-                                                                    onClick={() => onFlyToTrack(t.bbox)}
-                                                                >
-                                                                    <span style={styles.trackName}>
-                                                                        {t.displayName}
-                                                                    </span>
-                                                                    {t.date && (
-                                                                        <span style={styles.trackDate}>{t.date}</span>
-                                                                    )}
-                                                                </button>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                );
-                                            })}
-                                            {/* tracks whose category isn't in the categories list */}
-                                            {tracks
-                                                .filter(t => !catLookup.has(t.category))
-                                                .map(t => (
-                                                    <div key={t.fileId} style={styles.trackRow}>
-                                                        <button
-                                                            style={styles.trackBtn}
-                                                            onClick={() => onFlyToTrack(t.bbox)}
-                                                        >
-                                                            <span style={styles.trackName}>{t.displayName}</span>
-                                                            {t.date && <span style={styles.trackDate}>{t.date}</span>}
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                        </div>
-                                    )}
-                                </div>
+                                <button
+                                    key={cat.name}
+                                    style={styles.filterRow}
+                                    onClick={() => onToggleCategory(cat.name)}
+                                >
+                                    <span
+                                        style={{ ...styles.swatch, background: cat.color, opacity: hidden ? 0.3 : 1 }}
+                                    />
+                                    <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
+                                        {cat.label}
+                                    </span>
+                                    <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
+                                </button>
                             );
                         })}
+                        {categories.length === 0 && <p style={styles.empty}>No categories found</p>}
                     </Section>
+
+                    {/* Country visibility */}
+                    {countries.length > 0 && (
+                        <Section label="Countries">
+                            {countries.map(country => {
+                                const hidden = hiddenCountries.includes(country);
+                                return (
+                                    <button
+                                        key={country}
+                                        style={styles.filterRow}
+                                        onClick={() => onToggleCountry(country)}
+                                    >
+                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
+                                            {country}
+                                        </span>
+                                        <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
+                                    </button>
+                                );
+                            })}
+                        </Section>
+                    )}
 
                     {/* Peaks */}
                     {peakSets.length > 0 && (
                         <Section label="Peaks">
                             {peakSets.map(ps => (
-                                <div key={ps.category} style={styles.categoryRow}>
-                                    <span style={styles.categoryLabel}>{ps.category}</span>
+                                <div key={ps.category} style={styles.metaRow}>
+                                    <span style={styles.filterLabel}>{ps.category}</span>
                                     <span style={styles.count}>{ps.geojson.features.length}</span>
                                 </div>
                             ))}
                         </Section>
                     )}
 
-                    {/* Index */}
+                    {/* Info */}
                     <Section label="Index">
-                        {building ? (
-                            <p style={styles.progress}>{progress ?? 'Building…'}</p>
-                        ) : (
-                            <>
-                                <p style={styles.meta}>
-                                    {indexTrackCount} tracks
-                                    {indexGenerated && ` · built ${indexGenerated.slice(0, 10)}`}
-                                </p>
-                                <button style={styles.rebuildBtn} onClick={onRebuild}>
-                                    Rebuild Index
-                                </button>
-                            </>
+                        <p style={styles.meta}>
+                            {trackCount} tracks in PMTiles
+                            {indexGenerated && ` · built ${indexGenerated.slice(0, 10)}`}
+                        </p>
+                        {unindexedCount > 0 && (
+                            <p style={styles.meta}>
+                                {unindexedCount} new track{unindexedCount !== 1 ? 's' : ''} (GPX, not yet in PMTiles)
+                            </p>
                         )}
                     </Section>
                 </div>
@@ -228,13 +159,7 @@ const styles: Record<string, React.CSSProperties> = {
         flexShrink: 0,
     },
     title: { fontSize: 18, fontWeight: 600, color: '#1a73e8' },
-    closeBtn: {
-        background: 'none',
-        border: 'none',
-        fontSize: 18,
-        cursor: 'pointer',
-        color: '#666',
-    },
+    closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#666' },
     body: { overflowY: 'auto', flex: 1, padding: '8px 0' },
     section: { padding: '12px 16px', borderBottom: '1px solid #f0f0f0' },
     sectionLabel: {
@@ -245,10 +170,10 @@ const styles: Record<string, React.CSSProperties> = {
         letterSpacing: 0.8,
         marginBottom: 8,
     },
-    countryRow: {
+    filterRow: {
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 8,
         width: '100%',
         background: 'none',
         border: 'none',
@@ -256,65 +181,11 @@ const styles: Record<string, React.CSSProperties> = {
         textAlign: 'left',
         padding: '5px 0',
     },
-    chevron: { fontSize: 10, color: '#999', width: 12, flexShrink: 0 },
-    countryName: { fontSize: 14, fontWeight: 600, flex: 1, color: '#222' },
-    countryContent: { paddingLeft: 12 },
-    categoryRow: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 4,
-        marginTop: 6,
-    },
     swatch: { width: 12, height: 12, borderRadius: 2, flexShrink: 0 },
-    categoryLabel: { fontSize: 14, fontWeight: 500 },
-    trackRow: {
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 6,
-        paddingLeft: 20,
-        marginBottom: 2,
-    },
-    trackBtn: {
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        textAlign: 'left',
-        padding: 0,
-        display: 'flex',
-        flexDirection: 'column',
-    },
-    trackName: { fontSize: 13, color: '#333' },
-    trackDate: { fontSize: 11, color: '#888' },
+    filterLabel: { fontSize: 14, flex: 1, color: '#222' },
+    toggle: { fontSize: 12, color: '#1a73e8', flexShrink: 0 },
+    metaRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
     count: { fontSize: 11, color: '#999', marginLeft: 'auto' },
-    sourceBtn: {
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
-        padding: '6px 8px',
-        marginBottom: 2,
-        background: 'none',
-        border: '1px solid #e0e0e0',
-        borderRadius: 4,
-        cursor: 'pointer',
-        fontSize: 13,
-    },
-    sourceBtnActive: {
-        background: '#e8f0fe',
-        borderColor: '#1a73e8',
-        color: '#1a73e8',
-        fontWeight: 500,
-    },
-    meta: { fontSize: 12, color: '#666', marginBottom: 8 },
-    progress: { fontSize: 12, color: '#666', fontStyle: 'italic' },
-    rebuildBtn: {
-        padding: '6px 12px',
-        background: '#1a73e8',
-        color: '#fff',
-        border: 'none',
-        borderRadius: 4,
-        cursor: 'pointer',
-        fontSize: 13,
-    },
+    meta: { fontSize: 12, color: '#666', margin: '0 0 4px' },
     empty: { fontSize: 13, color: '#999', fontStyle: 'italic' },
 };

@@ -28,12 +28,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 try:
     import gpxpy
+    import geopandas as gpd
+    from shapely.geometry import Point
 except ImportError:
     sys.exit("Dependencies missing — run via: uv run build_pmtiles.py")
+
+COUNTRIES_PATH = Path(__file__).parent.parent.parent / "public" / "ne_110m_countries.geojson"
 
 GVFS_BASE = Path(f"/run/user/{os.getuid()}/gvfs")
 
@@ -104,6 +110,34 @@ def get_drive_id(gvfs_path: Path) -> str:
     return gvfs_path.name
 
 
+def load_country_index() -> tuple[Any, Any]:
+    if not COUNTRIES_PATH.exists():
+        print(f"Warning: countries file not found at {COUNTRIES_PATH}", file=sys.stderr)
+        return None, None
+    gdf: Any = gpd.read_file(COUNTRIES_PATH)  # type: ignore[no-untyped-call]
+    return gdf, gdf.sindex
+
+
+def lookup_country(gdf: Any, sindex: Any, lng: float, lat: float) -> str | None:
+    pt = Point(lng, lat)
+    for idx in sindex.query(pt):
+        row: Any = gdf.iloc[idx]
+        if row.geometry.contains(pt):
+            # Prefer geonunit (e.g. "Scotland") over admin (e.g. "United Kingdom")
+            geonunit: Any = row.get("geonunit")
+            admin: Any = row.get("admin")
+            return str(geonunit) if (geonunit and geonunit != admin) else (str(admin) if admin else None)
+    return None
+
+
+def bbox_from_features(features: list[dict[str, object]]) -> dict[str, float] | None:
+    lngs: list[float] = [c[0] for f in features for c in f["geometry"]["coordinates"]]  # type: ignore[index]
+    lats: list[float] = [c[1] for f in features for c in f["geometry"]["coordinates"]]  # type: ignore[index]
+    if not lngs:
+        return None
+    return {"west": min(lngs), "east": max(lngs), "south": min(lats), "north": max(lats)}
+
+
 def gpx_to_features(gpx_path: Path, category: str, file_id: str | None) -> list[dict[str, object]]:
     with gpx_path.open(encoding="utf-8", errors="replace") as f:
         try:
@@ -159,14 +193,18 @@ def main() -> None:
     tracks_folder = find_folder(doneit_folder, "tracks")
     print(f"Found tracks folder: {get_drive_id(tracks_folder)}")
 
-    # Load spatial index for filename→fileId mapping
+    # Load country lookup index
+    print("Loading country index ...")
+    gdf, sindex = load_country_index()
+
+    # Load existing index for filename→fileId mapping (preserved across rebuilds)
     track_names = list_by_name(tracks_folder)
     filename_to_file_id: dict[str, str] = {}
     if "tracks-index.json" in track_names:
         try:
-            index = json.loads(track_names["tracks-index.json"].read_text())
-            filename_to_file_id = {e["filename"]: e["fileId"] for e in index.get("tracks", [])}
-            print(f"Loaded index with {len(filename_to_file_id)} entries")
+            existing = json.loads(track_names["tracks-index.json"].read_text())
+            filename_to_file_id = {e["filename"]: e["fileId"] for e in existing.get("tracks", [])}
+            print(f"Loaded {len(filename_to_file_id)} existing fileId mappings from index")
         except Exception as e:
             print(f"Warning: could not read tracks-index.json: {e}", file=sys.stderr)
 
@@ -185,6 +223,7 @@ def main() -> None:
         # Convert GPX → GeoJSONSeq (reading directly from GVFS)
         geojsonseq = tmp / "tracks.geojsonseq"
         total = 0
+        index_entries: list[dict[str, object]] = []
         with geojsonseq.open("w") as out:
             for category, cat_gvfs in sorted(category_folders.items()):
                 gpx_files = {
@@ -195,9 +234,28 @@ def main() -> None:
                 print(f"  {category}: {len(gpx_files)} tracks")
                 for filename, gvfs_path in sorted(gpx_files.items()):
                     file_id = filename_to_file_id.get(filename, get_drive_id(gvfs_path))
-                    for feature in gpx_to_features(gvfs_path, category, file_id):
+                    features = gpx_to_features(gvfs_path, category, file_id)
+                    for feature in features:
                         out.write(json.dumps(feature) + "\n")
                         total += 1
+                    if features:
+                        bbox = bbox_from_features(features)
+                        country: str | None = None
+                        if bbox and gdf is not None:
+                            mid_lng = (bbox["west"] + bbox["east"]) / 2
+                            mid_lat = (bbox["south"] + bbox["north"]) / 2
+                            country = lookup_country(gdf, sindex, mid_lng, mid_lat)
+                        props: dict[str, object] = features[0]["properties"]  # type: ignore[assignment]
+                        index_entries.append({
+                            "fileId": file_id,
+                            "filename": filename,
+                            "category": category,
+                            "displayName": props["display_name"],
+                            "date": props["date"],
+                            "country": country,
+                            "bbox": bbox,
+                            "inPmtiles": True,
+                        })
 
         if total == 0:
             sys.exit("No tracks found.")
@@ -231,7 +289,17 @@ def main() -> None:
         print("Writing tracks.pmtiles to Google Drive ...")
         shutil.copyfile(str(pmtiles_out), str(dest))
 
-        # Resolve Drive file ID of the uploaded file
+        # Write tracks-index.json to Google Drive
+        index_data: dict[str, object] = {
+            "version": 1,
+            "generated": datetime.now(timezone.utc).isoformat(),
+            "tracks": index_entries,
+        }
+        index_dest = tracks_folder / "tracks-index.json"
+        print(f"Writing tracks-index.json ({len(index_entries)} tracks) to Google Drive ...")
+        index_dest.write_text(json.dumps(index_data, indent=2, default=str))
+
+        # Resolve Drive file ID of the uploaded PMTiles file
         updated_names = list_by_name(tracks_folder)
         if "tracks.pmtiles" in updated_names:
             drive_id = get_drive_id(updated_names["tracks.pmtiles"])

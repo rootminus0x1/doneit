@@ -5,17 +5,12 @@ import '../lib/drivepmtiles'; // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig';
 import { buildRasterStyle } from '../lib/tileConfig';
 import type { TrackCategory } from '../hooks/useDriveData';
-import type { FeatureCollection, LineString, Point } from 'geojson';
+import type { LoadedTrack } from '../hooks/useViewportTracks';
+import type { FeatureCollection, Point } from 'geojson';
 import type { TrackBbox } from '../lib/gpxParser';
 
 function styleFor(source: TileSource): string | StyleSpecification {
     return source.type === 'raster' ? (buildRasterStyle(source) as StyleSpecification) : source.styleUrl!;
-}
-
-export interface LoadedTrack {
-    fileId: string;
-    category: string;
-    geojson: FeatureCollection<LineString>;
 }
 
 export interface LoadedPeaks {
@@ -40,6 +35,8 @@ interface Props {
     onStyleLoad?: (sourceId: string) => void;
     onStyleFail?: (message: string) => void;
     flyToBbox?: TrackBbox | null;
+    hiddenCountries: string[];
+    hiddenCategories: string[];
 }
 
 // Copies track/peak sources and layers from the previous style into the next one
@@ -81,6 +78,8 @@ export function MapView({
     onStyleLoad,
     onStyleFail,
     flyToBbox,
+    hiddenCountries,
+    hiddenCategories,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -345,6 +344,24 @@ export function MapView({
             map.getCanvas().style.cursor = '';
         });
     }, [tracksPmtilesFileId, categories, mapVersion]);
+
+    // Apply country/category filter to PMTiles tracks layer
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !map.getLayer(PMTILES_LAYER)) return;
+
+        const conditions: unknown[] = [];
+        if (hiddenCountries.length > 0) {
+            conditions.push(['!', ['in', ['get', 'country'], ['literal', hiddenCountries]]]);
+        }
+        if (hiddenCategories.length > 0) {
+            conditions.push(['!', ['in', ['get', 'category'], ['literal', hiddenCategories]]]);
+        }
+        map.setFilter(
+            PMTILES_LAYER,
+            conditions.length === 0 ? null : (['all', ...conditions] as maplibregl.FilterSpecification),
+        );
+    }, [hiddenCountries, hiddenCategories, mapVersion]);
 
     // Fly to bbox
     useEffect(() => {

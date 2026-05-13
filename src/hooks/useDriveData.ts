@@ -1,32 +1,34 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, isReady } from '../lib/dataApi';
-import { parseTrackGpx, parsePeaksGpx, filenameToCategoryLabel } from '../lib/gpxParser';
-import { lookupCountry } from '../lib/countryLookup';
-import type { TrackIndex, IndexEntry } from '../lib/spatialIndex';
+import { parsePeaksGpx, filenameToCategoryLabel } from '../lib/gpxParser';
+import type { TrackIndex } from '../lib/spatialIndex';
 import type { ParsedPeaks } from '../lib/gpxParser';
 
 export interface TrackCategory {
-    id: string; // Drive folder id
-    name: string; // folder name e.g. "hiking"
-    label: string; // display label e.g. "Hiking"
+    id: string;
+    name: string;
+    label: string;
     color: string;
     width: number;
     opacity: number;
     dashArray: number[] | null;
-    maxViewportSpan: number | null; // degrees east-west; null = show at all scales
+    maxViewportSpan: number | null;
+}
+
+export interface UnindexedFile {
+    fileId: string;
+    category: string;
+    filename: string;
 }
 
 export interface DriveDataState {
     ready: boolean;
-    building: boolean;
-    progress: string | null;
     error: string | null;
     trackIndex: TrackIndex | null;
     categories: TrackCategory[];
     peakSets: ParsedPeaks[];
-    tracksFolderId: string | null;
     tracksPmtilesFileId: string | null;
-    rebuildIndex: () => Promise<void>;
+    unindexedFiles: UnindexedFile[];
 }
 
 interface DisplayConfig {
@@ -40,23 +42,18 @@ interface DisplayConfig {
 
 export function useDriveData(token: string | null): DriveDataState {
     const [ready, setReady] = useState(false);
-    const [building, setBuilding] = useState(false);
-    const [progress, setProgress] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [trackIndex, setTrackIndex] = useState<TrackIndex | null>(null);
     const [categories, setCategories] = useState<TrackCategory[]>([]);
     const [peakSets, setPeakSets] = useState<ParsedPeaks[]>([]);
-    const [tracksFolderId, setTracksFolderId] = useState<string | null>(null);
     const [tracksPmtilesFileId, setTracksPmtilesFileId] = useState<string | null>(null);
+    const [unindexedFiles, setUnindexedFiles] = useState<UnindexedFile[]>([]);
 
     const loadPeaks = useCallback(async (tok: string | null, rootId: string) => {
         const rootFolders = await api.listFolders(tok, rootId);
         const peaksFolder = rootFolders.find(f => f.name === 'peaks');
         if (!peaksFolder) return;
-
-        const gpxFiles = await api.listFiles(tok, peaksFolder.id, {
-            nameContains: '.gpx',
-        });
+        const gpxFiles = await api.listFiles(tok, peaksFolder.id, { nameContains: '.gpx' });
         const loaded: ParsedPeaks[] = [];
         for (const f of gpxFiles) {
             try {
@@ -70,69 +67,6 @@ export function useDriveData(token: string | null): DriveDataState {
         setPeakSets(loaded);
     }, []);
 
-    const buildIndex = useCallback(
-        async (tok: string | null, tracksFolderId: string, cats: TrackCategory[]): Promise<TrackIndex> => {
-            setBuilding(true);
-            const entries: IndexEntry[] = [];
-
-            const CONCURRENCY = 5;
-            for (const cat of cats) {
-                const gpxFiles = await api.listFiles(tok, cat.id, {
-                    nameContains: '.gpx',
-                });
-                let done = 0;
-                for (let i = 0; i < gpxFiles.length; i += CONCURRENCY) {
-                    const batch = gpxFiles.slice(i, i + CONCURRENCY);
-                    await Promise.all(
-                        batch.map(async f => {
-                            const n = ++done;
-                            setProgress(`${cat.label}: ${n}/${gpxFiles.length} — ${f.name}`);
-                            try {
-                                const text = await api.readFileText(tok, f.id);
-                                const parsed = parseTrackGpx(text, f.name);
-                                const { west, east, south, north } = parsed.bbox;
-                                const candidates: [number, number][] = [
-                                    [(west + east) / 2, (south + north) / 2],
-                                    [west, south],
-                                    [east, south],
-                                    [west, north],
-                                    [east, north],
-                                ];
-                                let country: string | null = null;
-                                for (const [cLng, cLat] of candidates) {
-                                    country = await lookupCountry(cLng, cLat).catch(() => null);
-                                    if (country) break;
-                                }
-                                entries.push({
-                                    fileId: f.id,
-                                    filename: f.name,
-                                    category: cat.name,
-                                    displayName: parsed.displayName,
-                                    date: parsed.date,
-                                    country,
-                                    bbox: parsed.bbox,
-                                });
-                            } catch {
-                                // skip unreadable track
-                            }
-                        }),
-                    );
-                }
-            }
-
-            const index: TrackIndex = {
-                version: 1,
-                generated: new Date().toISOString(),
-                tracks: entries,
-            };
-            await api.upsertJsonFile(tok, 'tracks-index.json', tracksFolderId, index);
-            setBuilding(false);
-            setProgress(null);
-            return index;
-        },
-        [],
-    );
-
     const init = useCallback(
         async (tok: string | null) => {
             setReady(false);
@@ -142,9 +76,8 @@ export function useDriveData(token: string | null): DriveDataState {
                 await loadPeaks(tok, rootId);
 
                 const tracksFId = await api.findOrCreateFolder(tok, 'tracks', rootId);
-                setTracksFolderId(tracksFId);
 
-                // Discover category subfolders
+                // Load categories from display.json files
                 const subfolders = await api.listFolders(tok, tracksFId);
                 const cats: TrackCategory[] = await Promise.all(
                     subfolders.map(async f => {
@@ -166,39 +99,38 @@ export function useDriveData(token: string | null): DriveDataState {
                 );
                 setCategories(cats);
 
-                // Load or build index
+                // Load pre-built index (written by build_pmtiles.py — not built here)
                 const indexFile = await api.findFileByName(tok, 'tracks-index.json', tracksFId);
-                let index: TrackIndex;
+                let index: TrackIndex | null = null;
                 if (indexFile) {
-                    const text = await api.readFileText(tok, indexFile.id);
-                    index = JSON.parse(text);
-                } else {
-                    index = await buildIndex(tok, tracksFId, cats);
+                    index = JSON.parse(await api.readFileText(tok, indexFile.id));
+                    setTrackIndex(index);
                 }
-                setTrackIndex(index);
 
-                // Check whether a pre-built PMTiles overlay exists in the tracks folder
+                // Check for pre-built PMTiles overlay
                 const pmtilesFile = await api.findFileByName(tok, 'tracks.pmtiles', tracksFId);
                 setTracksPmtilesFileId(pmtilesFile?.id ?? null);
+
+                // Scan category subfolders for GPX files not yet in the index
+                const indexedFilenames = new Set(index?.tracks.map(t => t.filename) ?? []);
+                const unindexed: UnindexedFile[] = [];
+                for (const cat of cats) {
+                    const gpxFiles = await api.listFiles(tok, cat.id, { nameContains: '.gpx' });
+                    for (const f of gpxFiles) {
+                        if (!indexedFilenames.has(f.name)) {
+                            unindexed.push({ fileId: f.id, category: cat.name, filename: f.name });
+                        }
+                    }
+                }
+                setUnindexedFiles(unindexed);
             } catch (err: unknown) {
                 setError(err instanceof Error ? err.message : String(err));
             } finally {
                 setReady(true);
             }
         },
-        [loadPeaks, buildIndex],
+        [loadPeaks],
     );
-
-    const rebuildIndex = useCallback(async () => {
-        if (!isReady(token) || !tracksFolderId || categories.length === 0) return;
-        setError(null);
-        try {
-            const index = await buildIndex(token, tracksFolderId, categories);
-            setTrackIndex(index);
-        } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : String(err));
-        }
-    }, [token, tracksFolderId, categories, buildIndex]);
 
     useEffect(() => {
         if (!isReady(token)) {
@@ -206,23 +138,12 @@ export function useDriveData(token: string | null): DriveDataState {
             setTrackIndex(null);
             setCategories([]);
             setPeakSets([]);
-            setTracksFolderId(null);
             setTracksPmtilesFileId(null);
+            setUnindexedFiles([]);
             return;
         }
         init(token);
     }, [token, init]);
 
-    return {
-        ready,
-        building,
-        progress,
-        error,
-        trackIndex,
-        categories,
-        peakSets,
-        tracksFolderId,
-        tracksPmtilesFileId,
-        rebuildIndex,
-    };
+    return { ready, error, trackIndex, categories, peakSets, tracksPmtilesFileId, unindexedFiles };
 }

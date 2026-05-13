@@ -8,18 +8,11 @@ export interface IndexEntry {
     date: string | null;
     country: string | null;
     bbox: TrackBbox;
+    inPmtiles?: boolean;
 }
 
 export interface TrackIndex {
     version: number;
     generated: string;
     tracks: IndexEntry[];
-}
-
-export function bboxOverlaps(a: TrackBbox, b: TrackBbox): boolean {
-    return a.west <= b.east && a.east >= b.west && a.south <= b.north && a.north >= b.south;
-}
-
-export function queryByBbox(index: TrackIndex, viewport: TrackBbox): IndexEntry[] {
-    return index.tracks.filter(entry => bboxOverlaps(entry.bbox, viewport));
 }
