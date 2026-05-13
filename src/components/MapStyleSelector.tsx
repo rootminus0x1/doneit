@@ -1,51 +1,59 @@
-import { useState, useRef } from 'react'
-import type { TileSource } from '../lib/tileConfig'
+import { useState, useRef } from "react";
+import type { TileSource } from "../lib/tileConfig";
 
 interface Props {
-  sources: TileSource[]
-  activeId: string
-  sidebarOpen: boolean
-  onSelect: (id: string) => void
+  sources: TileSource[];
+  activeId: string;
+  sidebarOpen: boolean;
+  onSelect: (id: string) => void;
 }
 
-const CARD = 64
-const STEP = 5   // px offset per stacked card
+const CARD = 64;
+const STEP = 5; // px offset per stacked card
 
-export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: Props) {
-  const [open, setOpen] = useState(false)
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+export function MapStyleSelector({
+  sources,
+  activeId,
+  sidebarOpen,
+  onSelect,
+}: Props) {
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Delayed close so the mouse can travel from stack to panel (or back) without flickering
   const scheduleClose = () => {
-    closeTimer.current = setTimeout(() => setOpen(false), 150)
-  }
+    closeTimer.current = setTimeout(() => setOpen(false), 150);
+  };
   const cancelClose = () => {
-    if (closeTimer.current) clearTimeout(closeTimer.current)
-  }
-  const handleEnter = () => { cancelClose(); setOpen(true) }
-  const handleLeave = () => scheduleClose()
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  };
+  const handleEnter = () => {
+    cancelClose();
+    setOpen(true);
+  };
+  const handleLeave = () => scheduleClose();
 
-  const active = sources.find(s => s.id === activeId) ?? sources[0]
-  if (!active) return null
-  const behind = sources.filter(s => s.id !== activeId).slice(0, 2)
+  const active = sources.find((s) => s.id === activeId) ?? sources[0];
+  if (!active) return null;
+  const behind = sources.filter((s) => s.id !== activeId).slice(0, 2);
 
   // Click on stack rotates to the next source
   const handleStackClick = () => {
-    const idx = sources.findIndex(s => s.id === activeId)
-    onSelect(sources[(idx + 1) % sources.length].id)
-  }
+    const idx = sources.findIndex((s) => s.id === activeId);
+    onSelect(sources[(idx + 1) % sources.length].id);
+  };
 
   // Container is big enough for all stacked cards (they offset bottom-right)
-  const containerSize = CARD + behind.length * STEP
+  const containerSize = CARD + behind.length * STEP;
 
   return (
     <div
       style={{
-        position: 'absolute',
+        position: "absolute",
         bottom: 28,
         left: sidebarOpen ? 312 : 12,
         zIndex: 10,
-        transition: 'left 0.25s ease',
+        transition: "left 0.25s ease",
       }}
     >
       {/* Styles panel — appears on hover, above the stack */}
@@ -55,12 +63,15 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
           onMouseEnter={handleEnter}
           onMouseLeave={handleLeave}
         >
-          {sources.map(s => (
+          {sources.map((s) => (
             <button
               key={s.id}
               style={{
                 ...styles.option,
-                outline: s.id === activeId ? '3px solid #1a73e8' : '2px solid transparent',
+                outline:
+                  s.id === activeId
+                    ? "3px solid #1a73e8"
+                    : "2px solid transparent",
               }}
               onClick={() => onSelect(s.id)}
             >
@@ -70,7 +81,7 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
                   alt=""
                   width={48}
                   height={48}
-                  style={{ display: 'block', borderRadius: 6 }}
+                  style={{ display: "block", borderRadius: 6 }}
                 />
               </div>
               <span style={styles.optionLabel}>{s.label}</span>
@@ -81,27 +92,33 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
 
       {/* Stack trigger — hover to expand, click to cycle */}
       <div
-        style={{ cursor: 'pointer', userSelect: 'none' }}
+        style={{ cursor: "pointer", userSelect: "none" }}
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         onClick={handleStackClick}
       >
-        <div style={{ position: 'relative', width: containerSize, height: containerSize }}>
+        <div
+          style={{
+            position: "relative",
+            width: containerSize,
+            height: containerSize,
+          }}
+        >
           {/* Behind cards — offset bottom-right so their edges peek out */}
           {behind.map((s, i) => {
-            const offset = (i + 1) * STEP
+            const offset = (i + 1) * STEP;
             return (
               <div
                 key={s.id}
                 style={{
-                  position: 'absolute',
+                  position: "absolute",
                   top: offset,
                   left: offset,
                   width: CARD,
                   height: CARD,
                   borderRadius: 8,
-                  overflow: 'hidden',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                  overflow: "hidden",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
                   opacity: 0.7 - i * 0.15,
                 }}
               >
@@ -110,22 +127,22 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
                   alt=""
                   width={CARD}
                   height={CARD}
-                  style={{ display: 'block' }}
+                  style={{ display: "block" }}
                 />
               </div>
-            )
+            );
           })}
           {/* Front card — active style, top-left */}
           <div
             style={{
-              position: 'absolute',
+              position: "absolute",
               top: 0,
               left: 0,
               width: CARD,
               height: CARD,
               borderRadius: 8,
-              overflow: 'hidden',
-              boxShadow: '0 3px 10px rgba(0,0,0,0.45)',
+              overflow: "hidden",
+              boxShadow: "0 3px 10px rgba(0,0,0,0.45)",
               zIndex: 2,
             }}
           >
@@ -134,41 +151,41 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
               alt={active.label}
               width={CARD}
               height={CARD}
-              style={{ display: 'block' }}
+              style={{ display: "block" }}
             />
           </div>
         </div>
         <div style={styles.stackLabel}>Layers</div>
       </div>
     </div>
-  )
+  );
 }
 
 const styles: Record<string, React.CSSProperties> = {
   panel: {
-    position: 'absolute',
-    bottom: '100%',
+    position: "absolute",
+    bottom: "100%",
     left: 0,
     marginBottom: 8,
-    background: '#fff',
+    background: "#fff",
     borderRadius: 12,
-    boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+    boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
     padding: 8,
-    display: 'flex',
-    flexDirection: 'column',
+    display: "flex",
+    flexDirection: "column",
     gap: 4,
     minWidth: 150,
   },
   option: {
-    display: 'flex',
-    alignItems: 'center',
+    display: "flex",
+    alignItems: "center",
     gap: 10,
-    background: 'none',
-    border: 'none',
+    background: "none",
+    border: "none",
     borderRadius: 8,
-    cursor: 'pointer',
-    padding: '5px 8px',
-    textAlign: 'left',
+    cursor: "pointer",
+    padding: "5px 8px",
+    textAlign: "left",
     outlineOffset: 2,
   },
   optionThumb: {
@@ -176,19 +193,19 @@ const styles: Record<string, React.CSSProperties> = {
     width: 48,
     height: 48,
     borderRadius: 6,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   optionLabel: {
     fontSize: 13,
     fontWeight: 500,
-    color: '#333',
+    color: "#333",
   },
   stackLabel: {
     marginTop: 4,
     fontSize: 11,
     fontWeight: 600,
-    color: '#fff',
-    textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+    color: "#fff",
+    textShadow: "0 1px 3px rgba(0,0,0,0.6)",
     letterSpacing: 0.3,
   },
-}
+};
