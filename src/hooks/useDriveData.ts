@@ -25,6 +25,7 @@ export interface DriveDataState {
     categories: TrackCategory[];
     peakSets: ParsedPeaks[];
     tracksFolderId: string | null;
+    tracksPmtilesFileId: string | null;
     rebuildIndex: () => Promise<void>;
 }
 
@@ -46,6 +47,7 @@ export function useDriveData(token: string | null): DriveDataState {
     const [categories, setCategories] = useState<TrackCategory[]>([]);
     const [peakSets, setPeakSets] = useState<ParsedPeaks[]>([]);
     const [tracksFolderId, setTracksFolderId] = useState<string | null>(null);
+    const [tracksPmtilesFileId, setTracksPmtilesFileId] = useState<string | null>(null);
 
     const loadPeaks = useCallback(async (tok: string | null, rootId: string) => {
         const rootFolders = await api.listFolders(tok, rootId);
@@ -174,6 +176,10 @@ export function useDriveData(token: string | null): DriveDataState {
                     index = await buildIndex(tok, tracksFId, cats);
                 }
                 setTrackIndex(index);
+
+                // Check whether a pre-built PMTiles overlay exists in the tracks folder
+                const pmtilesFile = await api.findFileByName(tok, 'tracks.pmtiles', tracksFId);
+                setTracksPmtilesFileId(pmtilesFile?.id ?? null);
             } catch (err: unknown) {
                 setError(err instanceof Error ? err.message : String(err));
             } finally {
@@ -201,6 +207,7 @@ export function useDriveData(token: string | null): DriveDataState {
             setCategories([]);
             setPeakSets([]);
             setTracksFolderId(null);
+            setTracksPmtilesFileId(null);
             return;
         }
         init(token);
@@ -215,6 +222,7 @@ export function useDriveData(token: string | null): DriveDataState {
         categories,
         peakSets,
         tracksFolderId,
+        tracksPmtilesFileId,
         rebuildIndex,
     };
 }

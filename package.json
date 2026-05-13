@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "fetch-countries": "uv run --directory scripts/fetch-countries python fetch_countries.py",
+    "build-pmtiles": "uv run --directory scripts/build-pmtiles python build_pmtiles.py",
     "fmt": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {

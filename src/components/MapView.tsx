@@ -31,6 +31,7 @@ interface Props {
     categories: TrackCategory[];
     loadedTracks: LoadedTrack[];
     loadedPeaks: LoadedPeaks[];
+    tracksPmtilesFileId?: string;
     onBoundsChange: (bounds: TrackBbox) => void;
     onMove: (center: [number, number], zoom: number) => void;
     onTrackClick: (fileId: string) => void;
@@ -43,16 +44,19 @@ interface Props {
 
 // Copies track/peak sources and layers from the previous style into the next one
 // so they remain visible throughout a style switch.
+const PMTILES_SOURCE = 'tracks-pmtiles';
+const PMTILES_LAYER = 'tracks-pmtiles-line';
+
 function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleSpecification): StyleSpecification {
     if (!prev) return next;
     const customSources: Record<string, SourceSpecification> = {};
     for (const [id, src] of Object.entries(prev.sources ?? {})) {
-        if (id.startsWith('track-') || id.startsWith('peaks-')) {
+        if (id.startsWith('track-') || id.startsWith('peaks-') || id === PMTILES_SOURCE) {
             customSources[id] = src as SourceSpecification;
         }
     }
     const customLayers = (prev.layers ?? []).filter(
-        l => l.id.startsWith('track-line-') || l.id.startsWith('peaks-circle-'),
+        l => l.id.startsWith('track-line-') || l.id.startsWith('peaks-circle-') || l.id === PMTILES_LAYER,
     );
     return {
         ...next,
@@ -68,6 +72,7 @@ export function MapView({
     categories,
     loadedTracks,
     loadedPeaks,
+    tracksPmtilesFileId,
     onBoundsChange,
     onMove,
     onTrackClick,
@@ -293,6 +298,53 @@ export function MapView({
             }
         }
     }, [loadedPeaks, mapVersion]);
+
+    // Sync PMTiles tracks overlay — one vector source covering all built tracks
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0 || !tracksPmtilesFileId) return;
+
+        if (map.getSource(PMTILES_SOURCE)) return; // already added; preserved across style switches
+
+        const colorExpr = [
+            'match',
+            ['get', 'category'],
+            ...categories.flatMap(c => [c.name, c.color]),
+            '#888888',
+        ] as unknown as maplibregl.ExpressionSpecification;
+        const widthExpr = [
+            'match',
+            ['get', 'category'],
+            ...categories.flatMap(c => [c.name, c.width]),
+            2,
+        ] as unknown as maplibregl.ExpressionSpecification;
+
+        map.addSource(PMTILES_SOURCE, {
+            type: 'vector',
+            url: `pmtiles://${tracksPmtilesFileId}`,
+        });
+        map.addLayer({
+            id: PMTILES_LAYER,
+            type: 'line',
+            source: PMTILES_SOURCE,
+            'source-layer': 'tracks',
+            paint: {
+                'line-color': colorExpr,
+                'line-width': widthExpr,
+                'line-opacity': 0.8,
+            },
+        });
+        map.on('click', PMTILES_LAYER, e => {
+            const fileId = e.features?.[0]?.properties?.file_id;
+            if (fileId) onTrackClickRef.current(fileId);
+        });
+        map.on('mouseenter', PMTILES_LAYER, () => {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', PMTILES_LAYER, () => {
+            map.getCanvas().style.cursor = '';
+        });
+    }, [tracksPmtilesFileId, categories, mapVersion]);
 
     // Fly to bbox
     useEffect(() => {

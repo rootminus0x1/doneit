@@ -22,6 +22,7 @@ export default function App() {
         trackIndex,
         categories,
         peakSets,
+        tracksPmtilesFileId,
         rebuildIndex,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
@@ -45,15 +46,20 @@ export default function App() {
     const tokenRef = useRef(token);
     tokenRef.current = token;
 
-    // Register any Drive-hosted PMTiles base maps with the shared protocol.
-    // Runs whenever the source list changes (e.g. after tile-sources.json loads).
+    // Register Drive-hosted PMTiles with the shared protocol — both base map sources
+    // and the tracks overlay. Runs whenever either list changes.
     useEffect(() => {
         allSources
             .filter(s => s.type === 'pmtiles-drive' && s.fileId)
             .forEach(s => registerDrivePMTiles(s.fileId!, () => tokenRef.current ?? ''));
-    }, [allSources]);
+        if (tracksPmtilesFileId) {
+            registerDrivePMTiles(tracksPmtilesFileId, () => tokenRef.current ?? '');
+        }
+    }, [allSources, tracksPmtilesFileId]);
 
-    const loadedTracks = useViewportTracks(token, trackIndex, viewport, categories);
+    const viewportTracks = useViewportTracks(token, trackIndex, viewport, categories);
+    // When a PMTiles overlay covers all tracks, skip the per-track GPX loads
+    const loadedTracks = tracksPmtilesFileId ? [] : viewportTracks;
 
     // Assign colours to peak sets
     const loadedPeaks = peakSets.map((ps, i) => ({
@@ -115,6 +121,7 @@ export default function App() {
                     onError={handleMapError}
                     onStyleLoad={handleStyleLoad}
                     onStyleFail={handleStyleFail}
+                    tracksPmtilesFileId={tracksPmtilesFileId ?? undefined}
                     flyToBbox={flyToBbox}
                 />
             )}
