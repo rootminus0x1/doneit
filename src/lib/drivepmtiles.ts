@@ -10,10 +10,13 @@ maplibregl.addProtocol('pmtiles', protocol.tile);
 // Implements the PMTiles Source interface against the Drive API.
 // getToken is called on every request so token refreshes are picked up automatically.
 class DriveSource {
-    constructor(
-        private readonly fileId: string,
-        private readonly getToken: () => string,
-    ) {}
+    private readonly fileId: string;
+    private readonly getToken: () => string;
+
+    constructor(fileId: string, getToken: () => string) {
+        this.fileId = fileId;
+        this.getToken = getToken;
+    }
 
     getKey(): string {
         return this.fileId;

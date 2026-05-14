@@ -28,7 +28,7 @@ jobs:
           node-version: 22
           cache: yarn
 
-      - run: yarn install --frozen-lockfile
+      - run: yarn install --immutable
 
       - run: yarn build
         env:
