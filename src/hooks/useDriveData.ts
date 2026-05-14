@@ -21,13 +21,33 @@ export interface UnindexedFile {
     filename: string;
 }
 
+export interface RawPeakCategory {
+    name: string;
+    count: number;
+}
+
+export type PeakShape = 'circle' | 'triangle' | 'square' | 'diamond';
+
+export interface PeakCategoryDisplay {
+    label?: string;
+    color?: string;
+    strokeColor?: string;
+    radius?: number;
+    opacity?: number;
+    shape?: PeakShape;
+}
+
 export interface DriveDataState {
     ready: boolean;
     error: string | null;
     trackIndex: TrackIndex | null;
     categories: TrackCategory[];
     peakSets: ParsedPeaks[];
+    peakCategories: RawPeakCategory[];
+    peakDisplayConfig: Record<string, PeakCategoryDisplay>;
+    peakDefaultHidden: string[];
     tracksPmtilesFileId: string | null;
+    peaksPmtilesFileId: string | null;
     unindexedFiles: UnindexedFile[];
 }
 
@@ -46,25 +66,91 @@ export function useDriveData(token: string | null): DriveDataState {
     const [trackIndex, setTrackIndex] = useState<TrackIndex | null>(null);
     const [categories, setCategories] = useState<TrackCategory[]>([]);
     const [peakSets, setPeakSets] = useState<ParsedPeaks[]>([]);
+    const [peakCategories, setPeakCategories] = useState<RawPeakCategory[]>([]);
+    const [peakDisplayConfig, setPeakDisplayConfig] = useState<Record<string, PeakCategoryDisplay>>({});
+    const [peakDefaultHidden, setPeakDefaultHidden] = useState<string[]>([]);
     const [tracksPmtilesFileId, setTracksPmtilesFileId] = useState<string | null>(null);
+    const [peaksPmtilesFileId, setPeaksPmtilesFileId] = useState<string | null>(null);
     const [unindexedFiles, setUnindexedFiles] = useState<UnindexedFile[]>([]);
 
     const loadPeaks = useCallback(async (tok: string | null, rootId: string) => {
         const rootFolders = await api.listFolders(tok, rootId);
         const peaksFolder = rootFolders.find(f => f.name === 'peaks');
         if (!peaksFolder) return;
+
+        const [pmtilesFile, indexFile, displayFile] = await Promise.all([
+            api.findFileByName(tok, 'peaks.pmtiles', peaksFolder.id),
+            api.findFileByName(tok, 'peaks-index.json', peaksFolder.id),
+            api.findFileByName(tok, 'display.json', peaksFolder.id),
+        ]);
+
+        // Parse display file once; derive both config and default-hidden list from it
+        let displayConfig: Record<string, PeakCategoryDisplay> = {};
+        let defaultVisibleSet: Set<string> | null = null;
+        if (displayFile) {
+            try {
+                const disp = JSON.parse(await api.readFileText(tok, displayFile.id));
+                if (disp.categories && typeof disp.categories === 'object')
+                    displayConfig = disp.categories as Record<string, PeakCategoryDisplay>;
+                if (Array.isArray(disp.defaultVisible))
+                    defaultVisibleSet = new Set<string>(disp.defaultVisible as string[]);
+            } catch { /* ignore bad config */ }
+        }
+        setPeakDisplayConfig(displayConfig);
+
+        // Category names are always lowercase (matching peaks-index.json and build script)
+        const gpxNameToCategory = (filename: string) => filename.replace(/\.gpx$/i, '').toLowerCase();
+        const computeDefaultHidden = (categoryNames: string[]) =>
+            defaultVisibleSet ? categoryNames.filter(n => !defaultVisibleSet!.has(n)) : [];
+
+        if (pmtilesFile && indexFile) {
+            setPeaksPmtilesFileId(pmtilesFile.id);
+            try {
+                const idx = JSON.parse(await api.readFileText(tok, indexFile.id));
+                const cats: RawPeakCategory[] = idx.categories ?? [];
+                // Sort by display.json key order so the user's intended ranking drives
+                // both sidebar order and map z-ordering (first in display.json = on top).
+                const displayOrder = Object.keys(displayConfig);
+                const orderedCats = displayOrder.length > 0
+                    ? [
+                        ...displayOrder.map(name => cats.find(c => c.name === name)).filter((c): c is RawPeakCategory => c !== undefined),
+                        ...cats.filter(c => !displayOrder.includes(c.name)),
+                      ]
+                    : cats;
+                setPeakCategories(orderedCats);
+                setPeakDefaultHidden(computeDefaultHidden(orderedCats.map(c => c.name)));
+
+                // Load GPX files not yet in the PMTiles index so they appear immediately
+                const indexedCategories = new Set(cats.map(c => c.name));
+                const allGpxFiles = await api.listFiles(tok, peaksFolder.id, { nameContains: '.gpx' });
+                const unindexed: ParsedPeaks[] = [];
+                for (const f of allGpxFiles) {
+                    const cat = gpxNameToCategory(f.name);
+                    if (!indexedCategories.has(cat)) {
+                        try {
+                            const text = await api.readFileText(tok, f.id);
+                            unindexed.push(parsePeaksGpx(text, cat));
+                        } catch { /* skip unreadable file */ }
+                    }
+                }
+                if (unindexed.length > 0) setPeakSets(unindexed);
+            } catch {
+                // peaks-index.json unreadable — categories stay empty
+            }
+            return;
+        }
+
+        // GPX fallback: load all files, use lowercase name as category key
         const gpxFiles = await api.listFiles(tok, peaksFolder.id, { nameContains: '.gpx' });
         const loaded: ParsedPeaks[] = [];
         for (const f of gpxFiles) {
             try {
                 const text = await api.readFileText(tok, f.id);
-                const category = filenameToCategoryLabel(f.name);
-                loaded.push(parsePeaksGpx(text, category));
-            } catch {
-                // skip unreadable peaks file
-            }
+                loaded.push(parsePeaksGpx(text, gpxNameToCategory(f.name)));
+            } catch { /* skip unreadable peaks file */ }
         }
         setPeakSets(loaded);
+        setPeakDefaultHidden(computeDefaultHidden(loaded.map(ps => ps.category)));
     }, []);
 
     const init = useCallback(
@@ -138,12 +224,16 @@ export function useDriveData(token: string | null): DriveDataState {
             setTrackIndex(null);
             setCategories([]);
             setPeakSets([]);
+            setPeakCategories([]);
+            setPeakDisplayConfig({});
+            setPeakDefaultHidden([]);
             setTracksPmtilesFileId(null);
+            setPeaksPmtilesFileId(null);
             setUnindexedFiles([]);
             return;
         }
         init(token);
     }, [token, init]);
 
-    return { ready, error, trackIndex, categories, peakSets, tracksPmtilesFileId, unindexedFiles };
+    return { ready, error, trackIndex, categories, peakSets, peakCategories, peakDisplayConfig, peakDefaultHidden, tracksPmtilesFileId, peaksPmtilesFileId, unindexedFiles };
 }

@@ -1,5 +1,11 @@
 import type { TrackCategory } from '../hooks/useDriveData';
-import type { ParsedPeaks } from '../lib/gpxParser';
+
+interface PeakCategory {
+    name: string;
+    label: string;
+    count: number;
+    color: string;
+}
 
 interface Props {
     open: boolean;
@@ -10,7 +16,9 @@ interface Props {
     trackTypes: string[];
     hiddenTrackTypes: string[];
     onToggleTrackType: (t: string) => void;
-    peakSets: ParsedPeaks[];
+    peakCategories: PeakCategory[];
+    hiddenPeakCategories: string[];
+    onTogglePeakCategory: (name: string) => void;
     trackCount: number;
     indexGenerated: string | null;
     unindexedCount: number;
@@ -25,7 +33,9 @@ export function Sidebar({
     trackTypes,
     hiddenTrackTypes,
     onToggleTrackType,
-    peakSets,
+    peakCategories,
+    hiddenPeakCategories,
+    onTogglePeakCategory,
     trackCount,
     indexGenerated,
     unindexedCount,
@@ -81,14 +91,32 @@ export function Sidebar({
                     )}
 
                     {/* Peaks */}
-                    {peakSets.length > 0 && (
+                    {peakCategories.length > 0 && (
                         <Section label="Peaks">
-                            {peakSets.map(ps => (
-                                <div key={ps.category} style={styles.metaRow}>
-                                    <span style={styles.filterLabel}>{ps.category}</span>
-                                    <span style={styles.count}>{ps.geojson.features.length}</span>
-                                </div>
-                            ))}
+                            {peakCategories.map(pc => {
+                                const hidden = hiddenPeakCategories.includes(pc.name);
+                                return (
+                                    <button
+                                        key={pc.name}
+                                        style={styles.filterRow}
+                                        onClick={() => onTogglePeakCategory(pc.name)}
+                                    >
+                                        <span
+                                            style={{
+                                                ...styles.swatch,
+                                                background: pc.color,
+                                                borderRadius: '50%',
+                                                opacity: hidden ? 0.3 : 1,
+                                            }}
+                                        />
+                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
+                                            {pc.label}
+                                        </span>
+                                        <span style={styles.count}>{pc.count}</span>
+                                        <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
+                                    </button>
+                                );
+                            })}
                         </Section>
                     )}
 

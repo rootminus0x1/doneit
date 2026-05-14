@@ -33,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -273,6 +274,98 @@ def build_features_from_cache(
     return features
 
 
+def find_folder_optional(parent: Path, name: str) -> Path | None:
+    return list_by_name(parent).get(name)
+
+
+def parse_gpx_waypoints(gpx_path: Path, filename: str) -> list[dict[str, object]]:
+    """Parse waypoints from a GPX file — returns {name, ele, lat, lng} per waypoint."""
+    with gpx_path.open(encoding="utf-8", errors="replace") as f:
+        try:
+            parsed = gpxpy.parse(f)  # type: ignore[no-untyped-call]
+        except Exception as e:
+            print(f"  skip {filename}: {e}", file=sys.stderr)
+            return []
+    return [
+        {
+            "name": wpt.name or "",  # type: ignore[union-attr]
+            "ele": float(wpt.elevation) if wpt.elevation is not None else 0.0,  # type: ignore[union-attr,arg-type]
+            "lat": wpt.latitude,  # type: ignore[union-attr]
+            "lng": wpt.longitude,  # type: ignore[union-attr]
+        }
+        for wpt in parsed.waypoints  # type: ignore[union-attr]
+        if wpt.latitude is not None and wpt.longitude is not None  # type: ignore[union-attr]
+    ]
+
+
+def build_peaks(peaks_folder: Path, elapsed: Callable[[], str]) -> None:
+    """Build peaks.pmtiles from .gpx waypoint files in the peaks folder."""
+    peak_files = {
+        name: path
+        for name, path in list_by_name(peaks_folder).items()
+        if name.lower().endswith(".gpx")
+    }
+    if not peak_files:
+        print("No .gpx files in peaks/ — skipping peaks PMTiles")
+        return
+
+    print(f"\nBuilding peaks.pmtiles from {len(peak_files)} file(s) ...")
+    t_phase = time.monotonic()
+
+    with tempfile.TemporaryDirectory(prefix="doneit-peaks-") as tmpdir:
+        tmp = Path(tmpdir)
+        geojsonseq = tmp / "peaks.geojsonseq"
+        index_categories: list[dict[str, object]] = []
+        total = 0
+
+        with geojsonseq.open("w") as out:
+            for filename, gvfs_path in sorted(peak_files.items()):
+                category = filename[:-4].lower()  # strip .gpx, lowercase
+                waypoints = parse_gpx_waypoints(gvfs_path, filename)
+                for wpt in waypoints:
+                    out.write(json.dumps({
+                        "type": "Feature",
+                        "geometry": {"type": "Point", "coordinates": [wpt["lng"], wpt["lat"]]},
+                        "properties": {"name": wpt["name"], "ele": wpt["ele"], "category": category},
+                    }) + "\n")
+                    total += 1
+                index_categories.append({"name": category, "count": len(waypoints)})
+                print(f"  {category}: {len(waypoints)} waypoints")
+
+        if total == 0:
+            print("No waypoints found — skipping peaks PMTiles")
+            return
+
+        pmtiles_out = tmp / "peaks.pmtiles"
+        subprocess.run(
+            [
+                "tippecanoe",
+                "-o", str(pmtiles_out),
+                "-l", "peaks",
+                "-Z0", "-z14",
+                "-r1",                   # keep all points at all zoom levels (no density dropping)
+                "--no-feature-limit",
+                "--no-tile-size-limit",
+                "--force",
+                str(geojsonseq),
+            ],
+            check=True,
+        )
+        size_mb = pmtiles_out.stat().st_size / 1_048_576
+        print(f"  Peaks tippecanoe: {size_mb:.1f} MB [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+
+        dest = peaks_folder / "peaks.pmtiles"
+        shutil.copyfile(str(pmtiles_out), str(dest))
+
+        index_data: dict[str, object] = {
+            "version": 1,
+            "generated": datetime.now(timezone.utc).isoformat(),
+            "categories": index_categories,
+        }
+        (peaks_folder / "peaks-index.json").write_text(json.dumps(index_data, indent=2))
+        print(f"Peaks done: {total} waypoints {elapsed()}")
+
+
 def bbox_from_features(features: list[dict[str, object]]) -> dict[str, float] | None:
     lngs: list[float] = [c[0] for f in features for c in f["geometry"]["coordinates"]]  # type: ignore[index]
     lats: list[float] = [c[1] for f in features for c in f["geometry"]["coordinates"]]  # type: ignore[index]
@@ -497,6 +590,14 @@ def main() -> None:
         t_phase = time.monotonic()
         index_dest.write_text(json.dumps(index_data, indent=2, default=str))
         print(f"Index written [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+
+        # Build peaks PMTiles if peaks/ folder exists
+        peaks_folder = find_folder_optional(doneit_folder, "peaks")
+        if peaks_folder is not None:
+            build_peaks(peaks_folder, elapsed)
+        else:
+            print("No peaks/ folder — skipping peaks PMTiles")
+
         print(f"Done. {elapsed()}")
 
 

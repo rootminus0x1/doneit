@@ -4,10 +4,49 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import '../lib/drivepmtiles'; // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig';
 import { buildRasterStyle } from '../lib/tileConfig';
-import type { TrackCategory } from '../hooks/useDriveData';
+import type { TrackCategory, PeakShape } from '../hooks/useDriveData';
 import type { LoadedTrack } from '../hooks/useViewportTracks';
 import type { FeatureCollection, Point } from 'geojson';
 import type { TrackBbox } from '../lib/gpxParser';
+
+function generatePeakIcon(shape: PeakShape, color: string, strokeColor: string, radius: number): ImageData {
+    const dim = Math.ceil(radius * 2 + 4);
+    const canvas = document.createElement('canvas');
+    canvas.width = dim;
+    canvas.height = dim;
+    const ctx = canvas.getContext('2d')!;
+    const cx = dim / 2;
+    const cy = dim / 2;
+    const r = radius - 0.75; // inset slightly so stroke doesn't clip
+
+    ctx.fillStyle = color;
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+
+    if (shape === 'circle') {
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    } else if (shape === 'triangle') {
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r * Math.sin(2 * Math.PI / 3), cy - r * Math.cos(2 * Math.PI / 3));
+        ctx.lineTo(cx + r * Math.sin(4 * Math.PI / 3), cy - r * Math.cos(4 * Math.PI / 3));
+        ctx.closePath();
+    } else if (shape === 'square') {
+        const h = r * 0.9;
+        ctx.rect(cx - h, cy - h, h * 2, h * 2);
+    } else {
+        // diamond
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r * 0.75, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r * 0.75, cy);
+        ctx.closePath();
+    }
+
+    ctx.fill();
+    ctx.stroke();
+    return ctx.getImageData(0, 0, dim, dim);
+}
 
 function styleFor(source: TileSource): string | StyleSpecification {
     return source.type === 'raster' ? (buildRasterStyle(source) as StyleSpecification) : source.styleUrl!;
@@ -25,6 +64,19 @@ export interface LoadedPeaks {
     category: string;
     geojson: FeatureCollection<Point>;
     color: string;
+    strokeColor: string;
+    radius: number;
+    opacity: number;
+    shape: PeakShape;
+}
+
+export interface PeakCategory {
+    name: string;
+    color: string;
+    strokeColor: string;
+    radius: number;
+    opacity: number;
+    shape: PeakShape;
 }
 
 interface Props {
@@ -35,34 +87,49 @@ interface Props {
     loadedTracks: LoadedTrack[];
     loadedPeaks: LoadedPeaks[];
     tracksPmtilesFileId?: string;
+    peaksPmtilesFileId?: string;
+    peakCategories: PeakCategory[];
     onBoundsChange: (bounds: TrackBbox) => void;
     onMove: (center: [number, number], zoom: number) => void;
     onTrackClick: (data: TrackPopupData) => void;
     onTrackHover: (data: TrackPopupData | null) => void;
     onPeakClick: (name: string, elevation: number, category: string) => void;
+    onPeakHover?: (name: string, elevation: number, category: string) => void;
+    onPeakHoverEnd?: () => void;
+    onBearingChange?: (bearing: number) => void;
+    northTrigger?: number;
     onError: (message: string) => void;
     onStyleLoad?: (sourceId: string) => void;
     onStyleFail?: (message: string) => void;
     flyToBbox?: TrackBbox | null;
     hiddenCategories: string[];
     hiddenTrackTypes: string[];
+    hiddenPeakCategories: string[];
 }
 
 // Copies track/peak sources and layers from the previous style into the next one
 // so they remain visible throughout a style switch.
 const PMTILES_SOURCE = 'tracks-pmtiles';
 const PMTILES_LAYER = 'tracks-pmtiles-line';
+const PEAKS_PMTILES_SOURCE = 'peaks-pmtiles';
+const peakPmtilesLayerId = (name: string) => `peaks-pmtiles-symbol-${name}`;
+
+// Scale peak icons with zoom: small at overview, full-size when zoomed in
+const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15, 1.5] as unknown as maplibregl.ExpressionSpecification;
 
 function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleSpecification): StyleSpecification {
     if (!prev) return next;
     const customSources: Record<string, SourceSpecification> = {};
     for (const [id, src] of Object.entries(prev.sources ?? {})) {
-        if (id.startsWith('track-') || id.startsWith('peaks-') || id === PMTILES_SOURCE) {
+        if (id.startsWith('track-') || id.startsWith('peaks-') || id === PMTILES_SOURCE || id === PEAKS_PMTILES_SOURCE) {
             customSources[id] = src as SourceSpecification;
         }
     }
     const customLayers = (prev.layers ?? []).filter(
-        l => l.id.startsWith('track-line-') || l.id.startsWith('peaks-circle-') || l.id === PMTILES_LAYER,
+        l =>
+            l.id.startsWith('track-line-') ||
+            l.id.startsWith('peaks-') ||
+            l.id === PMTILES_LAYER,
     );
     return {
         ...next,
@@ -89,17 +156,24 @@ export function MapView({
     loadedTracks,
     loadedPeaks,
     tracksPmtilesFileId,
+    peaksPmtilesFileId,
+    peakCategories,
     onBoundsChange,
     onMove,
     onTrackClick,
     onTrackHover,
     onPeakClick,
+    onPeakHover,
+    onPeakHoverEnd,
+    onBearingChange,
+    northTrigger,
     onError,
     onStyleLoad,
     onStyleFail,
     flyToBbox,
     hiddenCategories,
     hiddenTrackTypes,
+    hiddenPeakCategories,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -112,33 +186,23 @@ export function MapView({
     const onTrackClickRef = useRef(onTrackClick);
     const onTrackHoverRef = useRef(onTrackHover);
     const onPeakClickRef = useRef(onPeakClick);
+    const onPeakHoverRef = useRef(onPeakHover);
+    const onPeakHoverEndRef = useRef(onPeakHoverEnd);
+    const onBearingChangeRef = useRef(onBearingChange);
     const onErrorRef = useRef(onError);
     const onStyleLoadRef = useRef(onStyleLoad);
     const onStyleFailRef = useRef(onStyleFail);
-    useEffect(() => {
-        onBoundsChangeRef.current = onBoundsChange;
-    });
-    useEffect(() => {
-        onMoveRef.current = onMove;
-    });
-    useEffect(() => {
-        onTrackClickRef.current = onTrackClick;
-    });
-    useEffect(() => {
-        onTrackHoverRef.current = onTrackHover;
-    });
-    useEffect(() => {
-        onPeakClickRef.current = onPeakClick;
-    });
-    useEffect(() => {
-        onErrorRef.current = onError;
-    });
-    useEffect(() => {
-        onStyleLoadRef.current = onStyleLoad;
-    });
-    useEffect(() => {
-        onStyleFailRef.current = onStyleFail;
-    });
+    useEffect(() => { onBoundsChangeRef.current = onBoundsChange; });
+    useEffect(() => { onMoveRef.current = onMove; });
+    useEffect(() => { onTrackClickRef.current = onTrackClick; });
+    useEffect(() => { onTrackHoverRef.current = onTrackHover; });
+    useEffect(() => { onPeakClickRef.current = onPeakClick; });
+    useEffect(() => { onPeakHoverRef.current = onPeakHover; });
+    useEffect(() => { onPeakHoverEndRef.current = onPeakHoverEnd; });
+    useEffect(() => { onBearingChangeRef.current = onBearingChange; });
+    useEffect(() => { onErrorRef.current = onError; });
+    useEffect(() => { onStyleLoadRef.current = onStyleLoad; });
+    useEffect(() => { onStyleFailRef.current = onStyleFail; });
 
     // Increments whenever the style finishes loading, triggering layer effects
     const [mapVersion, setMapVersion] = useState(0);
@@ -173,6 +237,10 @@ export function MapView({
             });
         });
 
+        map.on('rotate', () => {
+            onBearingChangeRef.current?.(map.getBearing());
+        });
+
         map.on('error', e => {
             // Only surface errors before the first style.load — after that, errors are mostly
             // transient tile fetch failures (404, rate limit) which the user can't action.
@@ -203,6 +271,12 @@ export function MapView({
             loadedSourceIdRef.current = null;
         };
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Reset north when northTrigger increments
+    useEffect(() => {
+        if (!northTrigger) return;
+        mapRef.current?.resetNorth({ animate: true });
+    }, [northTrigger]);
 
     // When the source prop changes, update the style in place — no remount.
     // For vector sources, fetch and validate the style URL before calling setStyle so a
@@ -302,41 +376,135 @@ export function MapView({
         }
     }, [loadedTracks, categories, mapVersion]);
 
-    // Sync peak layers — reruns when peaks change or after style loads
+    // Register peak icon images — must run before layer effects and after every style reload
+    // (setStyle clears all custom images from the map)
     useEffect(() => {
         const map = mapRef.current;
         if (!map || mapVersion === 0) return;
 
+        const addOrUpdate = (name: string, shape: PeakShape, color: string, strokeColor: string, radius: number) => {
+            const img = generatePeakIcon(shape, color, strokeColor, radius);
+            if (map.hasImage(name)) map.removeImage(name);
+            map.addImage(name, img);
+        };
+
+        addOrUpdate('peak-icon-default', 'circle', '#888888', '#ffffff', 5);
+        for (const pc of peakCategories) {
+            addOrUpdate(`peak-icon-${pc.name}`, pc.shape, pc.color, pc.strokeColor, pc.radius);
+        }
         for (const ps of loadedPeaks) {
+            addOrUpdate(`peak-icon-${ps.category}`, ps.shape, ps.color, ps.strokeColor, ps.radius);
+        }
+    }, [peakCategories, loadedPeaks, mapVersion]);
+
+    // Add GeoJSON peak layers (fallback when no peaks PMTiles).
+    // Reversed so the first category in the list ends up on top (last-added = highest z-order).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0) return;
+
+        for (const ps of [...loadedPeaks].reverse()) {
             const sid = `peaks-${ps.category}`;
-            const lid = `peaks-circle-${ps.category}`;
+            const lid = `peaks-symbol-${ps.category}`;
 
             if (!map.getSource(sid)) {
                 map.addSource(sid, { type: 'geojson', data: ps.geojson });
                 map.addLayer({
                     id: lid,
-                    type: 'circle',
+                    type: 'symbol',
                     source: sid,
-                    paint: {
-                        'circle-color': ps.color,
-                        'circle-radius': 5,
-                        'circle-stroke-color': '#fff',
-                        'circle-stroke-width': 1.5,
+                    layout: {
+                        'icon-image': `peak-icon-${ps.category}`,
+                        'icon-size': PEAK_ICON_SIZE,
+                        'icon-allow-overlap': true,
                     },
                 });
                 map.on('click', lid, e => {
                     const f = e.features?.[0];
                     if (f) onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category);
                 });
-                map.on('mouseenter', lid, () => {
+                map.on('mouseenter', lid, e => {
                     map.getCanvas().style.cursor = 'pointer';
+                    const f = e.features?.[0];
+                    if (f) onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category);
                 });
                 map.on('mouseleave', lid, () => {
                     map.getCanvas().style.cursor = '';
+                    onPeakHoverEndRef.current?.();
                 });
             }
         }
     }, [loadedPeaks, mapVersion]);
+
+    // Toggle GeoJSON peak layer visibility by category
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0) return;
+        for (const ps of loadedPeaks) {
+            const lid = `peaks-symbol-${ps.category}`;
+            if (map.getLayer(lid)) {
+                map.setLayoutProperty(lid, 'visibility', hiddenPeakCategories.includes(ps.category) ? 'none' : 'visible');
+            }
+        }
+    }, [loadedPeaks, hiddenPeakCategories, mapVersion]);
+
+    // Add peaks PMTiles source and one symbol layer per category.
+    // Reversed so the first category in the list ends up on top (last-added = highest z-order).
+    // Deps include peakCategories: when they arrive after peaksPmtilesFileId, this re-runs
+    // and adds the category layers (source already present, each layer guarded by getLayer check).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0 || !peaksPmtilesFileId) return;
+
+        if (!map.getSource(PEAKS_PMTILES_SOURCE)) {
+            map.addSource(PEAKS_PMTILES_SOURCE, {
+                type: 'vector',
+                url: `pmtiles://${peaksPmtilesFileId}`,
+            });
+        }
+
+        for (const pc of [...peakCategories].reverse()) {
+            const lid = peakPmtilesLayerId(pc.name);
+            if (map.getLayer(lid)) continue;
+            map.addLayer({
+                id: lid,
+                type: 'symbol',
+                source: PEAKS_PMTILES_SOURCE,
+                'source-layer': 'peaks',
+                filter: ['==', ['get', 'category'], pc.name] as unknown as maplibregl.FilterSpecification,
+                layout: {
+                    'icon-image': `peak-icon-${pc.name}` as unknown as maplibregl.ExpressionSpecification,
+                    'icon-size': PEAK_ICON_SIZE,
+                    'icon-allow-overlap': true,
+                },
+            });
+            map.on('click', lid, e => {
+                const props = e.features?.[0]?.properties;
+                if (props) onPeakClickRef.current(props.name ?? '', props.ele ?? 0, props.category ?? '');
+            });
+            map.on('mouseenter', lid, e => {
+                map.getCanvas().style.cursor = 'pointer';
+                const props = e.features?.[0]?.properties;
+                if (props) onPeakHoverRef.current?.(props.name ?? '', props.ele ?? 0, pc.name);
+            });
+            map.on('mouseleave', lid, () => {
+                map.getCanvas().style.cursor = '';
+                onPeakHoverEndRef.current?.();
+            });
+        }
+    }, [peaksPmtilesFileId, peakCategories, mapVersion]);
+
+    // Toggle PMTiles peak layer visibility per category
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        for (const pc of peakCategories) {
+            const lid = peakPmtilesLayerId(pc.name);
+            if (map.getLayer(lid)) {
+                map.setLayoutProperty(lid, 'visibility', hiddenPeakCategories.includes(pc.name) ? 'none' : 'visible');
+            }
+        }
+    }, [peakCategories, hiddenPeakCategories, mapVersion]);
 
     // Sync PMTiles tracks overlay — one vector source covering all built tracks
     useEffect(() => {

@@ -9,6 +9,7 @@ import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
 import { Sidebar } from './components/Sidebar';
 import { registerDrivePMTiles } from './lib/drivepmtiles';
+import { filenameToCategoryLabel } from './lib/gpxParser';
 
 const PEAK_COLORS = ['#f59e0b', '#6366f1', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -32,7 +33,11 @@ export default function App() {
         trackIndex,
         categories,
         peakSets,
+        peakCategories,
+        peakDisplayConfig,
+        peakDefaultHidden,
         tracksPmtilesFileId,
+        peaksPmtilesFileId,
         unindexedFiles,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
@@ -47,6 +52,9 @@ export default function App() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [flyToBbox, setFlyToBbox] = useState(null as null | import('./lib/gpxParser').TrackBbox);
     const [mapError, setMapError] = useState<string | null>(null);
+    const [bearing, setBearing] = useState(0);
+    const [northTrigger, setNorthTrigger] = useState(0);
+    const [hoverPeak, setHoverPeak] = useState<{ name: string; elevation: number; category: string } | null>(null);
     const lastGoodSourceIdRef = useRef<string | null>(null);
     const [popup, setPopup] = useState<{ title: string; body: string } | null>(null);
     const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
@@ -54,6 +62,8 @@ export default function App() {
 
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
+    const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
+    const peakDefaultsApplied = useRef(false);
 
     const toggleCategory = useCallback(
         (c: string) => setHiddenCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
@@ -63,6 +73,17 @@ export default function App() {
         (t: string) => setHiddenTrackTypes(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])),
         [],
     );
+    const togglePeakCategory = useCallback(
+        (c: string) => setHiddenPeakCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
+        [],
+    );
+
+    // Apply default peak visibility once when categories first load from Drive
+    useEffect(() => {
+        if (peakDefaultsApplied.current || (peakCategories.length === 0 && peakSets.length === 0)) return;
+        peakDefaultsApplied.current = true;
+        setHiddenPeakCategories(peakDefaultHidden);
+    }, [peakDefaultHidden, peakCategories, peakSets]);
 
     const availableTrackTypes = useMemo(
         () =>
@@ -81,15 +102,60 @@ export default function App() {
         if (tracksPmtilesFileId) {
             registerDrivePMTiles(tracksPmtilesFileId, () => tokenRef.current ?? '');
         }
-    }, [allSources, tracksPmtilesFileId]);
+        if (peaksPmtilesFileId) {
+            registerDrivePMTiles(peaksPmtilesFileId, () => tokenRef.current ?? '');
+        }
+    }, [allSources, tracksPmtilesFileId, peaksPmtilesFileId]);
 
     // Load raw GPX only for files not yet included in the PMTiles build
     const loadedTracks = useUnindexedTracks(token, unindexedFiles);
 
-    const loadedPeaks = peakSets.map((ps, i) => ({
-        ...ps,
-        color: PEAK_COLORS[i % PEAK_COLORS.length],
-    }));
+    // peakSets holds unindexed GPX peaks (always rendered, even when PMTiles is active)
+    // Colors for unindexed start after the indexed categories so palettes don't clash
+    const loadedPeaks = peakSets.map((ps, i) => {
+        const d = peakDisplayConfig[ps.category] ?? {};
+        return {
+            ...ps,
+            color: d.color ?? PEAK_COLORS[(peakCategories.length + i) % PEAK_COLORS.length],
+            strokeColor: d.strokeColor ?? '#ffffff',
+            radius: d.radius ?? 5,
+            opacity: d.opacity ?? 0.9,
+            shape: d.shape ?? ('circle' as const),
+        };
+    });
+
+    // Combine PMTiles-indexed categories and unindexed GPX categories for display
+    const enrichedPeakCategories = useMemo(
+        () => [
+            ...peakCategories.map((pc, i) => {
+                const d = peakDisplayConfig[pc.name] ?? {};
+                return {
+                    name: pc.name,
+                    label: d.label ?? filenameToCategoryLabel(pc.name),
+                    count: pc.count,
+                    color: d.color ?? PEAK_COLORS[i % PEAK_COLORS.length],
+                    strokeColor: d.strokeColor ?? '#ffffff',
+                    radius: d.radius ?? 5,
+                    opacity: d.opacity ?? 0.9,
+                    shape: d.shape ?? ('circle' as const),
+                };
+            }),
+            ...peakSets.map((ps, i) => {
+                const d = peakDisplayConfig[ps.category] ?? {};
+                return {
+                    name: ps.category,
+                    label: d.label ?? filenameToCategoryLabel(ps.category),
+                    count: ps.geojson.features.length,
+                    color: d.color ?? PEAK_COLORS[(peakCategories.length + i) % PEAK_COLORS.length],
+                    strokeColor: d.strokeColor ?? '#ffffff',
+                    radius: d.radius ?? 5,
+                    opacity: d.opacity ?? 0.9,
+                    shape: d.shape ?? ('circle' as const),
+                };
+            }),
+        ],
+        [peakCategories, peakSets, peakDisplayConfig],
+    );
 
     const handleTrackClick = useCallback((data: TrackPopupData) => {
         setClickedTrack(data);
@@ -103,6 +169,12 @@ export default function App() {
     const handlePeakClick = useCallback((name: string, elevation: number, category: string) => {
         setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m` });
     }, []);
+
+    const handlePeakHover = useCallback((name: string, elevation: number, category: string) => {
+        setHoverPeak({ name, elevation, category });
+    }, []);
+
+    const handlePeakHoverEnd = useCallback(() => setHoverPeak(null), []);
 
     const handleStyleLoad = useCallback((sourceId: string) => {
         lastGoodSourceIdRef.current = sourceId;
@@ -133,12 +205,19 @@ export default function App() {
                     onTrackClick={handleTrackClick}
                     onTrackHover={handleTrackHover}
                     onPeakClick={handlePeakClick}
+                    onPeakHover={handlePeakHover}
+                    onPeakHoverEnd={handlePeakHoverEnd}
+                    onBearingChange={setBearing}
+                    northTrigger={northTrigger}
                     onError={msg => setMapError(msg)}
                     onStyleLoad={handleStyleLoad}
                     onStyleFail={handleStyleFail}
                     tracksPmtilesFileId={tracksPmtilesFileId ?? undefined}
+                    peaksPmtilesFileId={peaksPmtilesFileId ?? undefined}
+                    peakCategories={enrichedPeakCategories}
                     hiddenCategories={hiddenCategories}
                     hiddenTrackTypes={hiddenTrackTypes}
+                    hiddenPeakCategories={hiddenPeakCategories}
                     flyToBbox={flyToBbox}
                 />
             )}
@@ -177,7 +256,7 @@ export default function App() {
                 <div style={{ ...styles.loadingBanner, background: '#c62828' }}>Map style error: {mapError}</div>
             )}
 
-            <MapControls onLocate={setFlyToBbox} />
+            <MapControls onLocate={setFlyToBbox} bearing={bearing} onResetNorth={() => setNorthTrigger(n => n + 1)} />
 
             <Sidebar
                 open={sidebarOpen}
@@ -188,7 +267,9 @@ export default function App() {
                 trackTypes={availableTrackTypes}
                 hiddenTrackTypes={hiddenTrackTypes}
                 onToggleTrackType={toggleTrackType}
-                peakSets={peakSets}
+                peakCategories={enrichedPeakCategories}
+                hiddenPeakCategories={hiddenPeakCategories}
+                onTogglePeakCategory={togglePeakCategory}
                 trackCount={trackIndex?.tracks.length ?? 0}
                 indexGenerated={trackIndex?.generated ?? null}
                 unindexedCount={unindexedFiles.length}
@@ -202,6 +283,17 @@ export default function App() {
                         <button style={styles.popupClose} onClick={() => setPopup(null)}>
                             ✕
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {hoverPeak && !hoverTrack && !clickedTrack && (
+                <div style={styles.hoverPopupContainer}>
+                    <div style={{ ...styles.popup, pointerEvents: 'none' }}>
+                        <div style={styles.popupTitle}>{hoverPeak.name}</div>
+                        <div style={styles.popupBody}>
+                            {hoverPeak.category} · {Math.round(hoverPeak.elevation).toLocaleString()} m
+                        </div>
                     </div>
                 </div>
             )}
