@@ -56,9 +56,14 @@ export async function findOrCreateFolder(token: string | null, name: string, par
     const existing = await listFiles(token, parentId, {
         mimeType: 'application/vnd.google-apps.folder',
     });
+    console.log(`[Drive] findOrCreateFolder("${name}") — found folders:`, existing.map(f => f.name));
     const found = existing.find(f => f.name === name);
-    if (found) return found.id;
+    if (found) {
+        console.log(`[Drive] found folder "${name}" id=${found.id}`);
+        return found.id;
+    }
 
+    console.warn(`[Drive] folder "${name}" not found — creating new one`);
     const res = await request<DriveFile>(`${DRIVE_API}/files`, token, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
