@@ -36,6 +36,7 @@ jobs:
       - run: yarn build
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_DRIVE_FOLDER: DoneIt
 
       - uses: actions/configure-pages@v6
 
