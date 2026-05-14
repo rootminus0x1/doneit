@@ -8,7 +8,6 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "fetch-countries": "uv run --directory scripts/fetch-countries python fetch_countries.py",
     "build-pmtiles": "uv run --directory scripts/build-pmtiles python build_pmtiles.py",
     "fmt": "prettier --write \"src/**/*.{ts,tsx}\""
   },
@@ -31,6 +30,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "prettier": "^3.8.3",
+    "tsx": "^4.21.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",

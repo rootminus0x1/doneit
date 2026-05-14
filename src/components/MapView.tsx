@@ -13,6 +13,14 @@ function styleFor(source: TileSource): string | StyleSpecification {
     return source.type === 'raster' ? (buildRasterStyle(source) as StyleSpecification) : source.styleUrl!;
 }
 
+export interface TrackPopupData {
+    displayName: string;
+    trackType: string | null;
+    filename: string;
+    datetime: string | null;
+    linkText: string | null;
+}
+
 export interface LoadedPeaks {
     category: string;
     geojson: FeatureCollection<Point>;
@@ -29,14 +37,15 @@ interface Props {
     tracksPmtilesFileId?: string;
     onBoundsChange: (bounds: TrackBbox) => void;
     onMove: (center: [number, number], zoom: number) => void;
-    onTrackClick: (fileId: string) => void;
+    onTrackClick: (data: TrackPopupData) => void;
+    onTrackHover: (data: TrackPopupData | null) => void;
     onPeakClick: (name: string, elevation: number, category: string) => void;
     onError: (message: string) => void;
     onStyleLoad?: (sourceId: string) => void;
     onStyleFail?: (message: string) => void;
     flyToBbox?: TrackBbox | null;
-    hiddenCountries: string[];
     hiddenCategories: string[];
+    hiddenTrackTypes: string[];
 }
 
 // Copies track/peak sources and layers from the previous style into the next one
@@ -62,6 +71,16 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
     };
 }
 
+function buildTrackPopup(props: Record<string, unknown>): TrackPopupData {
+    return {
+        displayName: String(props.display_name ?? ''),
+        trackType: props.track_type ? String(props.track_type) : null,
+        filename: String(props.filename ?? ''),
+        datetime: props.datetime ? String(props.datetime) : null,
+        linkText: props.link_text ? String(props.link_text) : null,
+    };
+}
+
 export function MapView({
     source,
     initialCenter,
@@ -73,13 +92,14 @@ export function MapView({
     onBoundsChange,
     onMove,
     onTrackClick,
+    onTrackHover,
     onPeakClick,
     onError,
     onStyleLoad,
     onStyleFail,
     flyToBbox,
-    hiddenCountries,
     hiddenCategories,
+    hiddenTrackTypes,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -90,6 +110,7 @@ export function MapView({
     const onBoundsChangeRef = useRef(onBoundsChange);
     const onMoveRef = useRef(onMove);
     const onTrackClickRef = useRef(onTrackClick);
+    const onTrackHoverRef = useRef(onTrackHover);
     const onPeakClickRef = useRef(onPeakClick);
     const onErrorRef = useRef(onError);
     const onStyleLoadRef = useRef(onStyleLoad);
@@ -102,6 +123,9 @@ export function MapView({
     });
     useEffect(() => {
         onTrackClickRef.current = onTrackClick;
+    });
+    useEffect(() => {
+        onTrackHoverRef.current = onTrackHover;
     });
     useEffect(() => {
         onPeakClickRef.current = onPeakClick;
@@ -250,13 +274,29 @@ export function MapView({
                     },
                 });
                 map.on('click', lid, e => {
-                    if (e.features?.[0]) onTrackClickRef.current(track.fileId);
+                    if (e.features?.[0])
+                        onTrackClickRef.current({
+                            displayName: track.displayName,
+                            trackType: track.trackType,
+                            filename: track.filename,
+                            datetime: track.datetime,
+                            linkText: track.linkText,
+                        });
                 });
-                map.on('mouseenter', lid, () => {
+                map.on('mouseenter', lid, e => {
                     map.getCanvas().style.cursor = 'pointer';
+                    if (e.features?.[0])
+                        onTrackHoverRef.current({
+                            displayName: track.displayName,
+                            trackType: track.trackType,
+                            filename: track.filename,
+                            datetime: track.datetime,
+                            linkText: track.linkText,
+                        });
                 });
                 map.on('mouseleave', lid, () => {
                     map.getCanvas().style.cursor = '';
+                    onTrackHoverRef.current(null);
                 });
             }
         }
@@ -334,34 +374,35 @@ export function MapView({
             },
         });
         map.on('click', PMTILES_LAYER, e => {
-            const fileId = e.features?.[0]?.properties?.file_id;
-            if (fileId) onTrackClickRef.current(fileId);
+            const props = e.features?.[0]?.properties;
+            if (props) onTrackClickRef.current(buildTrackPopup(props));
         });
-        map.on('mouseenter', PMTILES_LAYER, () => {
+        map.on('mouseenter', PMTILES_LAYER, e => {
             map.getCanvas().style.cursor = 'pointer';
+            const props = e.features?.[0]?.properties;
+            if (props) onTrackHoverRef.current(buildTrackPopup(props));
         });
         map.on('mouseleave', PMTILES_LAYER, () => {
             map.getCanvas().style.cursor = '';
+            onTrackHoverRef.current(null);
         });
     }, [tracksPmtilesFileId, categories, mapVersion]);
 
-    // Apply country/category filter to PMTiles tracks layer
+    // Apply category/track-type filter to PMTiles tracks layer
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !map.getLayer(PMTILES_LAYER)) return;
 
         const conditions: unknown[] = [];
-        if (hiddenCountries.length > 0) {
-            conditions.push(['!', ['in', ['get', 'country'], ['literal', hiddenCountries]]]);
-        }
-        if (hiddenCategories.length > 0) {
+        if (hiddenCategories.length > 0)
             conditions.push(['!', ['in', ['get', 'category'], ['literal', hiddenCategories]]]);
-        }
+        if (hiddenTrackTypes.length > 0)
+            conditions.push(['!', ['in', ['get', 'track_type'], ['literal', hiddenTrackTypes]]]);
         map.setFilter(
             PMTILES_LAYER,
             conditions.length === 0 ? null : (['all', ...conditions] as maplibregl.FilterSpecification),
         );
-    }, [hiddenCountries, hiddenCategories, mapVersion]);
+    }, [hiddenCategories, hiddenTrackTypes, mapVersion]);
 
     // Fly to bbox
     useEffect(() => {

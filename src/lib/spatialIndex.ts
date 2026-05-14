@@ -7,6 +7,7 @@ export interface IndexEntry {
     displayName: string;
     date: string | null;
     country: string | null;
+    trackType: string | null;
     bbox: TrackBbox;
     inPmtiles?: boolean;
 }

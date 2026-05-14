@@ -7,9 +7,9 @@ interface Props {
     categories: TrackCategory[];
     hiddenCategories: string[];
     onToggleCategory: (name: string) => void;
-    countries: string[];
-    hiddenCountries: string[];
-    onToggleCountry: (country: string) => void;
+    trackTypes: string[];
+    hiddenTrackTypes: string[];
+    onToggleTrackType: (t: string) => void;
     peakSets: ParsedPeaks[];
     trackCount: number;
     indexGenerated: string | null;
@@ -22,9 +22,9 @@ export function Sidebar({
     categories,
     hiddenCategories,
     onToggleCategory,
-    countries,
-    hiddenCountries,
-    onToggleCountry,
+    trackTypes,
+    hiddenTrackTypes,
+    onToggleTrackType,
     peakSets,
     trackCount,
     indexGenerated,
@@ -65,20 +65,14 @@ export function Sidebar({
                         {categories.length === 0 && <p style={styles.empty}>No categories found</p>}
                     </Section>
 
-                    {/* Country visibility */}
-                    {countries.length > 0 && (
-                        <Section label="Countries">
-                            {countries.map(country => {
-                                const hidden = hiddenCountries.includes(country);
+                    {/* Track type visibility */}
+                    {trackTypes.length > 0 && (
+                        <Section label="Activity type">
+                            {trackTypes.map(t => {
+                                const hidden = hiddenTrackTypes.includes(t);
                                 return (
-                                    <button
-                                        key={country}
-                                        style={styles.filterRow}
-                                        onClick={() => onToggleCountry(country)}
-                                    >
-                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
-                                            {country}
-                                        </span>
+                                    <button key={t} style={styles.filterRow} onClick={() => onToggleTrackType(t)}>
+                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>{t}</span>
                                         <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
                                     </button>
                                 );

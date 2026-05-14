@@ -10,15 +10,19 @@ Prerequisites:
       or build from: https://github.com/felt/tippecanoe
 
 Usage:
-  uv run build_pmtiles.py [--folder DRIVE_FOLDER]
+  uv run build_pmtiles.py [--folder DRIVE_FOLDER] [--country]
 
 The script:
   1. Locates the Google Drive GVFS mount (used by the file manager)
   2. Navigates to <folder>/tracks/ by display name
   3. Converts all category/*.gpx files to a GeoJSONSeq with category/file_id properties
-  4. Runs tippecanoe to generate tracks.pmtiles (zoom 8–14, single 'tracks' layer)
-  5. Writes tracks.pmtiles back to the GVFS mount (same as saving in the file manager)
-  6. Prints the Drive file ID — add it to tile-sources.json on first run
+     (uses gpx-cache.json on Drive to skip unchanged files)
+  4. Runs tippecanoe to generate tracks.pmtiles (zoom 0-14, single 'tracks' layer)
+  5. Writes tracks.pmtiles, tracks-index.json, and gpx-cache.json back to Drive
+  6. Prints the Drive file ID -- add it to tile-sources.json on first run
+
+Pass --country to also download Natural Earth boundaries and look up the country for
+each track. This is slow and unreliable for coastal tracks so is off by default.
 """
 
 import argparse
@@ -28,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,8 +44,9 @@ try:
 except ImportError:
     sys.exit("Dependencies missing — run via: uv run build_pmtiles.py")
 
+COUNTRIES_URL = "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
 COUNTRIES_PATH = Path(__file__).parent.parent.parent / "public" / "ne_110m_countries.geojson"
-
+GPX_CACHE_NAME = "gpx-cache.json"
 GVFS_BASE = Path(f"/run/user/{os.getuid()}/gvfs")
 
 
@@ -51,6 +57,17 @@ def check_tool(name: str) -> None:
             "  tippecanoe: sudo apt install tippecanoe\n"
             "              or build from https://github.com/felt/tippecanoe"
         )
+
+
+def fetch_countries() -> None:
+    """Download Natural Earth 10m admin-1 boundaries and write to public/."""
+    print("Fetching country data from Natural Earth ...")
+    gdf: Any = gpd.read_file(COUNTRIES_URL)  # type: ignore[no-untyped-call]
+    gdf = gdf[["name", "geonunit", "admin", "geometry"]]
+    gdf["geometry"] = gdf["geometry"].simplify(0.001, preserve_topology=True)
+    COUNTRIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(COUNTRIES_PATH, driver="GeoJSON")
+    print(f"  {len(gdf)} features written to {COUNTRIES_PATH.name}")
 
 
 def find_gdrive_root() -> Path:
@@ -85,15 +102,13 @@ def list_by_name(parent: Path) -> dict[str, Path]:
 
     name_map: dict[str, Path] = {}
     current_path: Path | None = None
-    current_name: str | None = None
 
     for line in result.stdout.splitlines():
         if line.startswith("local path:"):
             current_path = Path(line.split(":", 1)[1].strip())
-            current_name = None
         elif "standard::display-name:" in line and current_path:
-            current_name = line.split("standard::display-name:", 1)[1].strip()
-            name_map[current_name] = current_path
+            display_name = line.split("standard::display-name:", 1)[1].strip()
+            name_map[display_name] = current_path
 
     return name_map
 
@@ -112,13 +127,13 @@ def get_drive_id(gvfs_path: Path) -> str:
 
 def load_country_index() -> tuple[Any, Any]:
     if not COUNTRIES_PATH.exists():
-        print(f"Warning: countries file not found at {COUNTRIES_PATH}", file=sys.stderr)
-        return None, None
+        sys.exit(f"Countries file not found at {COUNTRIES_PATH}")
     gdf: Any = gpd.read_file(COUNTRIES_PATH)  # type: ignore[no-untyped-call]
     return gdf, gdf.sindex
 
 
 def lookup_country(gdf: Any, sindex: Any, lng: float, lat: float) -> str | None:
+    """Exact containment check."""
     pt = Point(lng, lat)
     for idx in sindex.query(pt):
         row: Any = gdf.iloc[idx]
@@ -130,49 +145,140 @@ def lookup_country(gdf: Any, sindex: Any, lng: float, lat: float) -> str | None:
     return None
 
 
+def lookup_country_nearest(gdf: Any, sindex: Any, lng: float, lat: float, max_dist: float = 0.05) -> str | None:
+    """Nearest-polygon fallback for coastal tracks where GPS points land in the sea."""
+    pt = Point(lng, lat)
+    candidates = list(sindex.query(pt.buffer(max_dist)))
+    if not candidates:
+        return None
+    best_dist = float("inf")
+    best_row: Any = None
+    for idx in candidates:
+        row: Any = gdf.iloc[idx]
+        d: float = row.geometry.distance(pt)
+        if d < best_dist:
+            best_dist = d
+            best_row = row
+    if best_row is not None and best_dist <= max_dist:
+        geonunit: Any = best_row.get("geonunit")
+        admin: Any = best_row.get("admin")
+        return str(geonunit) if (geonunit and geonunit != admin) else (str(admin) if admin else None)
+    return None
+
+
+def find_country(gdf: Any, sindex: Any, all_coords: list[list[float]]) -> str | None:
+    """Sample up to 20 evenly-spaced track points; fall back to nearest polygon for coastal tracks."""
+    n = len(all_coords)
+    sample_count = min(20, n)
+    step = (n - 1) / (sample_count - 1) if sample_count > 1 else 0
+    indices = list(dict.fromkeys(int(round(i * step)) for i in range(sample_count)))
+    for idx in indices:
+        country = lookup_country(gdf, sindex, all_coords[idx][0], all_coords[idx][1])
+        if country:
+            return country
+    # Nearest-polygon fallback for coastal tracks where sampled points land in the sea
+    mid = all_coords[n // 2]
+    return lookup_country_nearest(gdf, sindex, mid[0], mid[1])
+
+
+def extract_gpx_metadata_batch(gvfs_paths: list[Path]) -> list[dict[str, str | None]]:
+    """Run gpx-meta-cli.ts via tsx for all files in one subprocess call."""
+    if not gvfs_paths:
+        return []
+    repo_root = Path(__file__).parent.parent.parent
+    tsx_bin = repo_root / "node_modules" / ".bin" / "tsx"
+    cli_script = repo_root / "scripts" / "gpx-meta-cli.ts"
+    if not tsx_bin.exists():
+        sys.exit(f"tsx not found at {tsx_bin}\n  Install it: yarn add -D tsx")
+    result = subprocess.run(
+        [str(tsx_bin), str(cli_script), *[str(p) for p in gvfs_paths]],
+        capture_output=True, text=True, cwd=str(repo_root),
+    )
+    if result.returncode != 0:
+        sys.exit(f"Metadata extraction failed:\n{result.stderr}")
+    return json.loads(result.stdout)
+
+
+def parse_gpx_coords(gpx_path: Path, filename: str) -> list[list[list[float]]]:
+    """Parse coordinate lists from a GPX file — one list of [lng, lat] per track element."""
+    with gpx_path.open(encoding="utf-8", errors="replace") as f:
+        try:
+            parsed = gpxpy.parse(f)  # type: ignore[no-untyped-call]
+        except Exception as e:
+            print(f"  skip {filename}: {e}", file=sys.stderr)
+            return []
+    return [
+        [[p.longitude, p.latitude] for seg in track.segments for p in seg.points]  # type: ignore[union-attr]
+        for track in parsed.tracks  # type: ignore[union-attr]
+    ]
+
+
+def load_gpx_cache(track_names: dict[str, Path]) -> dict[str, Any]:
+    if GPX_CACHE_NAME not in track_names:
+        return {}
+    try:
+        data = json.loads(track_names[GPX_CACHE_NAME].read_text())
+        if data.get("version") == 1:
+            entries: dict[str, Any] = data.get("entries", {})
+            print(f"  Loaded {len(entries)} cached GPX entries")
+            return entries
+    except Exception as e:
+        print(f"Warning: could not read {GPX_CACHE_NAME}: {e}", file=sys.stderr)
+    return {}
+
+
+def save_gpx_cache(tracks_folder: Path, entries: dict[str, Any]) -> None:
+    data: dict[str, object] = {
+        "version": 1,
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "entries": entries,
+    }
+    (tracks_folder / GPX_CACHE_NAME).write_text(json.dumps(data))
+
+
+def build_features_from_cache(
+    entry: dict[str, Any],
+    category: str,
+    file_id: str | None,
+    filename: str,
+    unnamed_out: list[str],
+) -> list[dict[str, object]]:
+    meta: dict[str, str | None] = entry["meta"]
+    dt = meta.get("datetime")
+    date: str | None = dt[:10] if dt else None
+
+    display_name = meta.get("displayName")
+    if not display_name:
+        display_name = f"{date} · {category}" if date else Path(filename).stem
+        unnamed_out.append(f"  {category}/{filename}  →  \"{display_name}\"")
+
+    features: list[dict[str, object]] = []
+    for coords in entry["tracks"]:
+        if not coords:
+            continue
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": coords},
+            "properties": {
+                "category": category,
+                "filename": filename,
+                "file_id": file_id,
+                "display_name": display_name,
+                "date": date,
+                "datetime": dt,
+                "track_type": meta.get("trackType"),
+                "link_text": meta.get("linkText"),
+            },
+        })
+    return features
+
+
 def bbox_from_features(features: list[dict[str, object]]) -> dict[str, float] | None:
     lngs: list[float] = [c[0] for f in features for c in f["geometry"]["coordinates"]]  # type: ignore[index]
     lats: list[float] = [c[1] for f in features for c in f["geometry"]["coordinates"]]  # type: ignore[index]
     if not lngs:
         return None
     return {"west": min(lngs), "east": max(lngs), "south": min(lats), "north": max(lats)}
-
-
-def gpx_to_features(gpx_path: Path, category: str, file_id: str | None) -> list[dict[str, object]]:
-    with gpx_path.open(encoding="utf-8", errors="replace") as f:
-        try:
-            parsed = gpxpy.parse(f)
-        except Exception as e:
-            print(f"  skip {gpx_path.name}: {e}", file=sys.stderr)
-            return []
-
-    features: list[dict[str, object]] = []
-    for track in parsed.tracks:
-        coords = []
-        for seg in track.segments:
-            coords.extend([[p.longitude, p.latitude] for p in seg.points])
-        if not coords:
-            continue
-
-        display_name = track.name or parsed.name or gpx_path.stem
-        date = None
-        if track.segments and track.segments[0].points:
-            pt = track.segments[0].points[0]
-            if pt.time:
-                date = pt.time.date().isoformat()
-
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "LineString", "coordinates": coords},
-            "properties": {
-                "category": category,
-                "filename": gpx_path.name,
-                "file_id": file_id,
-                "display_name": display_name,
-                "date": date,
-            },
-        })
-    return features
 
 
 def main() -> None:
@@ -182,97 +288,186 @@ def main() -> None:
         default="DoneIt",
         help="Drive subfolder matching VITE_DRIVE_FOLDER (default: DoneIt)",
     )
+    parser.add_argument(
+        "--country",
+        action="store_true",
+        default=False,
+        help="Look up country for each track (slow, unreliable for coastal tracks)",
+    )
     args = parser.parse_args()
 
+    t0 = time.monotonic()
+
+    def elapsed() -> str:
+        return f"[{time.monotonic() - t0:.1f}s]"
+
     check_tool("tippecanoe")
+
+    # Fetch and load country boundaries only when requested
+    gdf, sindex = None, None
+    if args.country:
+        t_phase = time.monotonic()
+        fetch_countries()
+        print(f"Country data fetched [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+        print("Loading country index ...")
+        t_phase = time.monotonic()
+        gdf, sindex = load_country_index()
+        print(f"Country index loaded [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
 
     # Navigate to the tracks folder via GVFS
     print("Locating Google Drive via GVFS ...")
     drive_root = find_gdrive_root()
     doneit_folder = find_folder(drive_root, args.folder)
     tracks_folder = find_folder(doneit_folder, "tracks")
-    print(f"Found tracks folder: {get_drive_id(tracks_folder)}")
+    print(f"Found tracks folder: {get_drive_id(tracks_folder)} {elapsed()}")
 
-    # Load country lookup index
-    print("Loading country index ...")
-    gdf, sindex = load_country_index()
-
-    # Load existing index for filename→fileId mapping (preserved across rebuilds)
+    # List tracks folder: existing index + cache + category subfolders
+    print("Listing tracks folder ...")
+    t_phase = time.monotonic()
     track_names = list_by_name(tracks_folder)
+    print(f"  {len(track_names)} items [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+
+    # Load filename→fileId mapping from existing index
     filename_to_file_id: dict[str, str] = {}
     if "tracks-index.json" in track_names:
         try:
             existing = json.loads(track_names["tracks-index.json"].read_text())
             filename_to_file_id = {e["filename"]: e["fileId"] for e in existing.get("tracks", [])}
-            print(f"Loaded {len(filename_to_file_id)} existing fileId mappings from index")
+            print(f"  {len(filename_to_file_id)} existing fileId mappings from index")
         except Exception as e:
             print(f"Warning: could not read tracks-index.json: {e}", file=sys.stderr)
 
-    # Discover category subfolders
-    category_folders: dict[str, Path] = {}
-    for display_name, path in track_names.items():
-        if path.is_dir():
-            category_folders[display_name] = path
+    # Load GPX cache (metadata + coordinates, keyed by category/filename)
+    cache_entries: dict[str, Any] = load_gpx_cache(track_names)
+    cache_updated = False
 
+    # Discover category subfolders
+    category_folders: dict[str, Path] = {
+        name: path for name, path in track_names.items() if path.is_dir()
+    }
     if not category_folders:
         sys.exit("No category subfolders found in tracks/ — expected e.g. hiking/, coastal/")
+
+    # Phase 1: collect all GPX file paths
+    print("Phase 1: listing category folders ...")
+    t_phase = time.monotonic()
+    all_gpx: list[tuple[str, str, Path]] = []
+    for category, cat_gvfs in sorted(category_folders.items()):
+        gpx_files = {
+            name: path
+            for name, path in list_by_name(cat_gvfs).items()
+            if name.lower().endswith(".gpx")
+        }
+        print(f"  {category}: {len(gpx_files)} tracks")
+        for filename, gvfs_path in sorted(gpx_files.items()):
+            all_gpx.append((category, filename, gvfs_path))
+    print(f"Phase 1 done: {len(all_gpx)} GPX files found [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+
+    if not all_gpx:
+        sys.exit("No GPX files found.")
+
+    # Identify which files are not yet cached
+    uncached_gpx = [(cat, fn, path) for cat, fn, path in all_gpx if f"{cat}/{fn}" not in cache_entries]
+
+    if uncached_gpx:
+        # Phase 2: batch metadata extraction for uncached files only
+        print(f"Phase 2: extracting metadata for {len(uncached_gpx)} uncached track(s) via Node.js ...")
+        t_phase = time.monotonic()
+        new_metas = extract_gpx_metadata_batch([path for _, _, path in uncached_gpx])
+        print(f"Phase 2 done [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+
+        # Phase 3: parse GPX coordinates for uncached files
+        print(f"Phase 3: parsing GPX coordinates for {len(uncached_gpx)} uncached track(s) ...")
+        t_phase = time.monotonic()
+        for (cat, fn, path), meta in zip(uncached_gpx, new_metas):
+            tracks_coords = parse_gpx_coords(path, fn)
+            cache_entries[f"{cat}/{fn}"] = {"meta": meta, "tracks": tracks_coords}
+            cache_updated = True
+        print(f"Phase 3 done [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+    else:
+        print(f"All {len(all_gpx)} tracks found in cache — skipping metadata extraction and GPX parsing {elapsed()}")
 
     with tempfile.TemporaryDirectory(prefix="doneit-pmtiles-") as tmpdir:
         tmp = Path(tmpdir)
 
-        # Convert GPX → GeoJSONSeq (reading directly from GVFS)
+        # Phase 4: build GeoJSONSeq from cache
+        print("Phase 4: building GeoJSONSeq ...")
+        t_phase = time.monotonic()
         geojsonseq = tmp / "tracks.geojsonseq"
         total = 0
         index_entries: list[dict[str, object]] = []
+        unnamed_tracks: list[str] = []
+        unknown_country_tracks: list[str] = []
+
         with geojsonseq.open("w") as out:
-            for category, cat_gvfs in sorted(category_folders.items()):
-                gpx_files = {
-                    name: path
-                    for name, path in list_by_name(cat_gvfs).items()
-                    if name.lower().endswith(".gpx")
-                }
-                print(f"  {category}: {len(gpx_files)} tracks")
-                for filename, gvfs_path in sorted(gpx_files.items()):
-                    file_id = filename_to_file_id.get(filename, get_drive_id(gvfs_path))
-                    features = gpx_to_features(gvfs_path, category, file_id)
-                    for feature in features:
-                        out.write(json.dumps(feature) + "\n")
-                        total += 1
-                    if features:
-                        bbox = bbox_from_features(features)
-                        country: str | None = None
-                        if bbox and gdf is not None:
-                            mid_lng = (bbox["west"] + bbox["east"]) / 2
-                            mid_lat = (bbox["south"] + bbox["north"]) / 2
-                            country = lookup_country(gdf, sindex, mid_lng, mid_lat)
-                        props: dict[str, object] = features[0]["properties"]  # type: ignore[assignment]
-                        index_entries.append({
-                            "fileId": file_id,
-                            "filename": filename,
-                            "category": category,
-                            "displayName": props["display_name"],
-                            "date": props["date"],
-                            "country": country,
-                            "bbox": bbox,
-                            "inPmtiles": True,
-                        })
+            for category, filename, gvfs_path in all_gpx:
+                file_id = filename_to_file_id.get(filename, get_drive_id(gvfs_path))
+                features = build_features_from_cache(
+                    cache_entries[f"{category}/{filename}"], category, file_id, filename, unnamed_tracks
+                )
+                for feature in features:
+                    out.write(json.dumps(feature) + "\n")
+                    total += 1
+                if features:
+                    bbox = bbox_from_features(features)
+                    country: str | None = None
+                    if gdf is not None:
+                        all_coords: list[list[float]] = [
+                            c for f in features for c in f["geometry"]["coordinates"]  # type: ignore[misc]
+                        ]
+                        if all_coords:
+                            country = find_country(gdf, sindex, all_coords)
+                    if gdf is not None and country is None:
+                        unknown_country_tracks.append(f"  {category}/{filename}")
+                    props: dict[str, object] = features[0]["properties"]  # type: ignore[assignment]
+                    index_entries.append({
+                        "fileId": file_id,
+                        "filename": filename,
+                        "category": category,
+                        "displayName": props["display_name"],
+                        "date": props["date"],
+                        "trackType": props["track_type"],
+                        "country": country,
+                        "bbox": bbox,
+                        "inPmtiles": True,
+                    })
 
         if total == 0:
             sys.exit("No tracks found.")
 
-        print(f"Converted {total} track(s) to GeoJSONSeq")
+        print(f"Phase 4 done: {total} track(s) [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+
+        if unnamed_tracks:
+            print(f"\n⚠  {len(unnamed_tracks)} track(s) have no name in their GPX metadata:", file=sys.stderr)
+            for line in unnamed_tracks:
+                print(line, file=sys.stderr)
+            print("   Add a <name> element inside <trk> in each GPX file to set a proper display name.\n", file=sys.stderr)
+
+        if unknown_country_tracks:
+            print(f"\n⚠  {len(unknown_country_tracks)} track(s) have an unknown country:", file=sys.stderr)
+            for line in unknown_country_tracks:
+                print(line, file=sys.stderr)
+            print("   No sampled point on these tracks fell within any country polygon.\n", file=sys.stderr)
+
+        # Save updated cache to Drive
+        if cache_updated:
+            print(f"Saving GPX cache ({len(cache_entries)} entries) to Google Drive ...")
+            t_phase = time.monotonic()
+            save_gpx_cache(tracks_folder, cache_entries)
+            print(f"Cache saved [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
 
         # Run tippecanoe
         pmtiles_out = tmp / "tracks.pmtiles"
         print("Running tippecanoe ...")
+        t_phase = time.monotonic()
         subprocess.run(
             [
                 "tippecanoe",
                 "-o", str(pmtiles_out),
-                "-l", "tracks",          # filter by 'category' property in MapLibre
-                "-Z0",   # min zoom: 0 = whole world in one tile
-                "-z14",  # max zoom: 14 = ~10 m resolution (street level)
-                "--no-feature-limit",    # keep all tracks at every zoom
+                "-l", "tracks",
+                "-Z0",
+                "-z14",
+                "--no-feature-limit",
                 "--no-tile-size-limit",
                 "--simplification=4",
                 "--coalesce-densest-as-needed",
@@ -282,12 +477,14 @@ def main() -> None:
             check=True,
         )
         size_mb = pmtiles_out.stat().st_size / 1_048_576
-        print(f"Generated tracks.pmtiles ({size_mb:.1f} MB)")
+        print(f"Tippecanoe done: {size_mb:.1f} MB [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
 
-        # Write to GVFS tracks folder (same as copying in the file manager)
+        # Write to GVFS tracks folder
         dest = tracks_folder / "tracks.pmtiles"
         print("Writing tracks.pmtiles to Google Drive ...")
+        t_phase = time.monotonic()
         shutil.copyfile(str(pmtiles_out), str(dest))
+        print(f"Upload done [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
 
         # Write tracks-index.json to Google Drive
         index_data: dict[str, object] = {
@@ -297,31 +494,10 @@ def main() -> None:
         }
         index_dest = tracks_folder / "tracks-index.json"
         print(f"Writing tracks-index.json ({len(index_entries)} tracks) to Google Drive ...")
+        t_phase = time.monotonic()
         index_dest.write_text(json.dumps(index_data, indent=2, default=str))
-
-        # Resolve Drive file ID of the uploaded PMTiles file
-        updated_names = list_by_name(tracks_folder)
-        if "tracks.pmtiles" in updated_names:
-            drive_id = get_drive_id(updated_names["tracks.pmtiles"])
-            print(f"\nDrive file ID: {drive_id}")
-            print("Add to tile-sources.json in your Drive root (first run only):")
-            print(
-                json.dumps(
-                    {
-                        "id": "tracks-pmtiles",
-                        "label": "My Tracks",
-                        "type": "pmtiles-drive",
-                        "fileId": drive_id,
-                        "styleUrl": "<your base MapLibre style URL>",
-                        "attribution": "Personal tracks",
-                        "thumbColor": "#4a90d9",
-                        "icon": "<svg>...</svg>",
-                    },
-                    indent=2,
-                )
-            )
-        else:
-            print("Upload complete. Find the file ID in Google Drive or the file manager.")
+        print(f"Index written [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
+        print(f"Done. {elapsed()}")
 
 
 if __name__ == "__main__":

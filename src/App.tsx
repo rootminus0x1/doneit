@@ -4,12 +4,25 @@ import { useDriveData } from './hooks/useDriveData';
 import { useTileSource } from './hooks/useTileSource';
 import { useUnindexedTracks } from './hooks/useViewportTracks';
 import { MapView } from './components/MapView';
+import type { TrackPopupData } from './components/MapView';
 import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
 import { Sidebar } from './components/Sidebar';
 import { registerDrivePMTiles } from './lib/drivepmtiles';
 
 const PEAK_COLORS = ['#f59e0b', '#6366f1', '#ec4899', '#14b8a6', '#f97316'];
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatDatetime(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${DAYS[d.getDay()]} ${day}-${MONTHS[d.getMonth()]}-${d.getFullYear()} ${hh}:${mm}`;
+}
 
 export default function App() {
     const { token, signIn, signOut, error: authError } = useGoogleAuth();
@@ -36,22 +49,24 @@ export default function App() {
     const [mapError, setMapError] = useState<string | null>(null);
     const lastGoodSourceIdRef = useRef<string | null>(null);
     const [popup, setPopup] = useState<{ title: string; body: string } | null>(null);
+    const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
+    const [clickedTrack, setClickedTrack] = useState<TrackPopupData | null>(null);
 
-    const [hiddenCountries, setHiddenCountries] = useState<string[]>([]);
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
+    const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
 
-    const toggleCountry = useCallback(
-        (c: string) => setHiddenCountries(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
-        [],
-    );
     const toggleCategory = useCallback(
         (c: string) => setHiddenCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
         [],
     );
+    const toggleTrackType = useCallback(
+        (t: string) => setHiddenTrackTypes(prev => (prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])),
+        [],
+    );
 
-    const availableCountries = useMemo(
+    const availableTrackTypes = useMemo(
         () =>
-            [...new Set((trackIndex?.tracks ?? []).map(t => t.country).filter((c): c is string => c !== null))].sort(),
+            [...new Set((trackIndex?.tracks ?? []).map(t => t.trackType).filter((t): t is string => t !== null))].sort(),
         [trackIndex],
     );
 
@@ -76,15 +91,14 @@ export default function App() {
         color: PEAK_COLORS[i % PEAK_COLORS.length],
     }));
 
-    const handleTrackClick = useCallback(
-        (fileId: string) => {
-            const entry = trackIndex?.tracks.find(t => t.fileId === fileId);
-            if (entry) {
-                setPopup({ title: entry.displayName, body: entry.date ?? '' });
-            }
-        },
-        [trackIndex],
-    );
+    const handleTrackClick = useCallback((data: TrackPopupData) => {
+        setClickedTrack(data);
+        setHoverTrack(null);
+    }, []);
+
+    const handleTrackHover = useCallback((data: TrackPopupData | null) => {
+        setHoverTrack(data);
+    }, []);
 
     const handlePeakClick = useCallback((name: string, elevation: number, category: string) => {
         setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m` });
@@ -117,13 +131,14 @@ export default function App() {
                     loadedPeaks={loadedPeaks}
                     onBoundsChange={() => {}}
                     onTrackClick={handleTrackClick}
+                    onTrackHover={handleTrackHover}
                     onPeakClick={handlePeakClick}
                     onError={msg => setMapError(msg)}
                     onStyleLoad={handleStyleLoad}
                     onStyleFail={handleStyleFail}
                     tracksPmtilesFileId={tracksPmtilesFileId ?? undefined}
-                    hiddenCountries={hiddenCountries}
                     hiddenCategories={hiddenCategories}
+                    hiddenTrackTypes={hiddenTrackTypes}
                     flyToBbox={flyToBbox}
                 />
             )}
@@ -170,9 +185,9 @@ export default function App() {
                 categories={categories}
                 hiddenCategories={hiddenCategories}
                 onToggleCategory={toggleCategory}
-                countries={availableCountries}
-                hiddenCountries={hiddenCountries}
-                onToggleCountry={toggleCountry}
+                trackTypes={availableTrackTypes}
+                hiddenTrackTypes={hiddenTrackTypes}
+                onToggleTrackType={toggleTrackType}
                 peakSets={peakSets}
                 trackCount={trackIndex?.tracks.length ?? 0}
                 indexGenerated={trackIndex?.generated ?? null}
@@ -190,6 +205,33 @@ export default function App() {
                     </div>
                 </div>
             )}
+
+            {(() => {
+                const trackPopup = clickedTrack ?? hoverTrack;
+                const pinned = clickedTrack !== null;
+                if (!trackPopup) return null;
+                return (
+                    <div
+                        style={pinned ? styles.popupOverlay : styles.hoverPopupContainer}
+                        onClick={pinned ? () => setClickedTrack(null) : undefined}
+                    >
+                        <div style={styles.popup} onClick={e => e.stopPropagation()}>
+                            <div style={styles.popupTitle}>{trackPopup.displayName}</div>
+                            <div style={styles.popupBody}>
+                                {trackPopup.trackType && <div>{trackPopup.trackType}</div>}
+                                <div>{trackPopup.filename}</div>
+                                {trackPopup.datetime && <div>{formatDatetime(trackPopup.datetime)}</div>}
+                                {trackPopup.linkText && <div>{trackPopup.linkText}</div>}
+                            </div>
+                            {pinned && (
+                                <button style={styles.popupClose} onClick={() => setClickedTrack(null)}>
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
@@ -245,6 +287,14 @@ const styles: Record<string, React.CSSProperties> = {
         alignItems: 'flex-end',
         justifyContent: 'center',
         paddingBottom: 80,
+    },
+    hoverPopupContainer: {
+        position: 'fixed',
+        bottom: 80,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 30,
+        pointerEvents: 'none',
     },
     popup: {
         background: '#fff',

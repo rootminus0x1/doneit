@@ -9,6 +9,10 @@ export interface LoadedTrack {
     category: string;
     displayName: string;
     date: string | null;
+    datetime: string | null;
+    trackType: string | null;
+    linkText: string | null;
+    filename: string;
     geojson: FeatureCollection<LineString>;
 }
 
@@ -36,6 +40,10 @@ export function useUnindexedTracks(token: string | null, files: UnindexedFile[])
                             category: entry.category,
                             displayName: parsed.displayName,
                             date: parsed.date,
+                            datetime: parsed.datetime,
+                            trackType: parsed.trackType,
+                            linkText: parsed.linkText,
+                            filename: entry.filename,
                             geojson: parsed.geojson,
                         });
                     } catch {

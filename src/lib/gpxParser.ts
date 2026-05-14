@@ -1,5 +1,6 @@
 import { gpx } from '@tmcw/togeojson';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
+import { findGpxText } from './gpxMeta';
 
 export interface TrackBbox {
     west: number;
@@ -13,6 +14,9 @@ export interface ParsedTrack {
     bbox: TrackBbox;
     displayName: string;
     date: string | null;
+    datetime: string | null;
+    trackType: string | null;
+    linkText: string | null;
 }
 
 export interface ParsedPeaks {
@@ -34,11 +38,6 @@ function bboxFromCoords(coords: number[][]): TrackBbox {
     return { west, east, south, north };
 }
 
-function extractText(doc: Document, selector: string): string | null {
-    const el = doc.querySelector(selector);
-    return el?.textContent?.trim() || null;
-}
-
 export function parseTrackGpx(gpxText: string, fallbackName: string): ParsedTrack {
     const doc = new DOMParser().parseFromString(gpxText, 'application/xml');
     const parseError = doc.querySelector('parsererror');
@@ -50,17 +49,23 @@ export function parseTrackGpx(gpxText: string, fallbackName: string): ParsedTrac
     const allCoords = trackFeatures.flatMap(f => f.geometry.coordinates as number[][]);
     const bbox = allCoords.length > 0 ? bboxFromCoords(allCoords) : { west: 0, east: 0, south: 0, north: 0 };
 
-    const displayName = extractText(doc, 'trk > name') || extractText(doc, 'name') || fallbackName;
+    const displayName = findGpxText(gpxText, 'trk', 'name') ?? findGpxText(gpxText, 'name') ?? fallbackName;
 
-    const dateStr = extractText(doc, 'metadata > time') || extractText(doc, 'trkpt > time') || null;
+    const dateStr = findGpxText(gpxText, 'metadata', 'time') ?? findGpxText(gpxText, 'trkpt', 'time');
 
     const date = dateStr ? dateStr.slice(0, 10) : null;
+    const datetime = dateStr ?? null;
+    const trackType = findGpxText(gpxText, 'trk', 'type');
+    const linkText = findGpxText(gpxText, 'metadata', 'link', 'text');
 
     return {
         geojson: { type: 'FeatureCollection', features: trackFeatures },
         bbox,
         displayName,
         date,
+        datetime,
+        trackType,
+        linkText,
     };
 }
 
