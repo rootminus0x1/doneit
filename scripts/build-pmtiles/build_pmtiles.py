@@ -27,6 +27,7 @@ each track. This is slow and unreliable for coastal tracks so is off by default.
 
 import argparse
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -298,19 +299,116 @@ def parse_gpx_waypoints(gpx_path: Path, filename: str) -> list[dict[str, object]
     ]
 
 
-def build_peaks(peaks_folder: Path, elapsed: Callable[[], str]) -> None:
+def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6_371_000
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def auto_detect_bagged(
+    tracks_by_file_id: dict[str, list[list[float]]],
+    all_peaks: dict[str, list[dict[str, Any]]],
+    existing_keys: set[str],
+    threshold_m: float,
+) -> list[dict[str, Any]]:
+    """Return new BaggedEntry dicts for peaks within threshold_m of any track point."""
+    lat_buf = threshold_m / 111_000
+    lng_buf = threshold_m / (111_000 * math.cos(math.radians(57.0)))
+
+    track_bboxes: dict[str, tuple[float, float, float, float]] = {}
+    for fid, coords in tracks_by_file_id.items():
+        if coords:
+            lngs = [c[0] for c in coords]
+            lats = [c[1] for c in coords]
+            track_bboxes[fid] = (min(lats), max(lats), min(lngs), max(lngs))
+
+    now = datetime.now(timezone.utc).isoformat()
+    new_entries: list[dict[str, Any]] = []
+
+    for category, waypoints in all_peaks.items():
+        for wpt in waypoints:
+            key = f"{category}:{wpt['name']}"
+            if key in existing_keys:
+                continue
+            wlat = float(wpt["lat"])
+            wlng = float(wpt["lng"])
+            matched_fid: str | None = None
+            for fid, coords in tracks_by_file_id.items():
+                bbox = track_bboxes.get(fid)
+                if not bbox:
+                    continue
+                blat_min, blat_max, blng_min, blng_max = bbox
+                if wlat < blat_min - lat_buf or wlat > blat_max + lat_buf:
+                    continue
+                if wlng < blng_min - lng_buf or wlng > blng_max + lng_buf:
+                    continue
+                if any(haversine_m(wlat, wlng, c[1], c[0]) <= threshold_m for c in coords):
+                    matched_fid = fid
+                    break
+            if matched_fid is not None:
+                new_entries.append({
+                    "category": category,
+                    "name": wpt["name"],
+                    "lat": wlat,
+                    "lng": wlng,
+                    "ele": float(wpt["ele"]),
+                    "baggedOn": now,
+                    "trackFileId": matched_fid,
+                })
+                existing_keys.add(key)
+
+    return new_entries
+
+
+def build_peaks(
+    peaks_folder: Path,
+    elapsed: Callable[[], str],
+    tracks_by_file_id: dict[str, list[list[float]]],
+    bag_distance_m: float,
+) -> None:
     """Build peaks.pmtiles from .gpx waypoint files in the peaks folder."""
-    peak_files = {
-        name: path
-        for name, path in list_by_name(peaks_folder).items()
-        if name.lower().endswith(".gpx")
-    }
+    peaks_names = list_by_name(peaks_folder)
+    peak_files = {name: path for name, path in peaks_names.items() if name.lower().endswith(".gpx")}
     if not peak_files:
         print("No .gpx files in peaks/ — skipping peaks PMTiles")
         return
 
+    # Load existing bagged.json
+    bagged_entries: list[dict[str, Any]] = []
+    if "bagged.json" in peaks_names:
+        try:
+            data = json.loads(peaks_names["bagged.json"].read_text())
+            if isinstance(data.get("entries"), list):
+                bagged_entries = data["entries"]
+                print(f"  Loaded {len(bagged_entries)} bagged entries from bagged.json")
+        except Exception as e:
+            print(f"Warning: could not read bagged.json: {e}", file=sys.stderr)
+
+    bagged_keys: set[str] = {f"{e['category']}:{e['name']}" for e in bagged_entries}
+
     print(f"\nBuilding peaks.pmtiles from {len(peak_files)} file(s) ...")
     t_phase = time.monotonic()
+
+    # Parse all waypoints first (needed for auto-detection)
+    all_peaks: dict[str, list[dict[str, Any]]] = {}
+    for filename, gvfs_path in sorted(peak_files.items()):
+        category = filename[:-4].lower()
+        all_peaks[category] = parse_gpx_waypoints(gvfs_path, filename)
+
+    # Auto-detect newly bagged peaks from tracks
+    if tracks_by_file_id:
+        new_detections = auto_detect_bagged(tracks_by_file_id, all_peaks, bagged_keys, bag_distance_m)
+        if new_detections:
+            print(f"  Auto-detected {len(new_detections)} newly bagged peak(s):")
+            for e in new_detections:
+                print(f"    {e['category']}/{e['name']}")
+            bagged_entries.extend(new_detections)
+            bagged_data: dict[str, object] = {"version": 1, "entries": bagged_entries}
+            (peaks_folder / "bagged.json").write_text(json.dumps(bagged_data, indent=2))
+            print("  Updated bagged.json written to Drive")
 
     with tempfile.TemporaryDirectory(prefix="doneit-peaks-") as tmpdir:
         tmp = Path(tmpdir)
@@ -319,14 +417,18 @@ def build_peaks(peaks_folder: Path, elapsed: Callable[[], str]) -> None:
         total = 0
 
         with geojsonseq.open("w") as out:
-            for filename, gvfs_path in sorted(peak_files.items()):
-                category = filename[:-4].lower()  # strip .gpx, lowercase
-                waypoints = parse_gpx_waypoints(gvfs_path, filename)
+            for category, waypoints in sorted(all_peaks.items()):
                 for wpt in waypoints:
+                    key = f"{category}:{wpt['name']}"
                     out.write(json.dumps({
                         "type": "Feature",
                         "geometry": {"type": "Point", "coordinates": [wpt["lng"], wpt["lat"]]},
-                        "properties": {"name": wpt["name"], "ele": wpt["ele"], "category": category},
+                        "properties": {
+                            "name": wpt["name"],
+                            "ele": wpt["ele"],
+                            "category": category,
+                            "done": key in bagged_keys,
+                        },
                     }) + "\n")
                     total += 1
                 index_categories.append({"name": category, "count": len(waypoints)})
@@ -386,6 +488,13 @@ def main() -> None:
         action="store_true",
         default=False,
         help="Look up country for each track (slow, unreliable for coastal tracks)",
+    )
+    parser.add_argument(
+        "--bag-distance",
+        type=float,
+        default=500.0,
+        metavar="METRES",
+        help="Proximity threshold for auto-detecting bagged peaks (default: 500 m)",
     )
     args = parser.parse_args()
 
@@ -591,10 +700,20 @@ def main() -> None:
         index_dest.write_text(json.dumps(index_data, indent=2, default=str))
         print(f"Index written [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
 
+        # Build tracks_by_file_id for peak auto-detection
+        tracks_by_file_id: dict[str, list[list[float]]] = {}
+        for category, filename, gvfs_path in all_gpx:
+            file_id = filename_to_file_id.get(filename, get_drive_id(gvfs_path))
+            entry = cache_entries.get(f"{category}/{filename}")
+            if entry:
+                coords = [c for seg in entry["tracks"] for c in seg]
+                if coords:
+                    tracks_by_file_id[file_id] = coords
+
         # Build peaks PMTiles if peaks/ folder exists
         peaks_folder = find_folder_optional(doneit_folder, "peaks")
         if peaks_folder is not None:
-            build_peaks(peaks_folder, elapsed)
+            build_peaks(peaks_folder, elapsed, tracks_by_file_id, args.bag_distance)
         else:
             print("No peaks/ folder — skipping peaks PMTiles")
 

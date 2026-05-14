@@ -13,6 +13,9 @@ No category names, source lists, or layer counts are hardcoded. The app discover
 ### No silent fallbacks
 Do not swallow errors or substitute placeholder data when something fails to load. Silent fallbacks mask real problems — the user sees a working-looking app when it is actually broken. Instead, propagate errors and surface them visibly (error banner, thrown exception). The only acceptable silent behaviour is skipping a single malformed item in a list (e.g. one unreadable GPX file) when others can still be shown.
 
+### GPX/GeoJSON display vs PMTiles display are separate concerns
+GPX files (loaded as GeoJSON) are always displayed as-is — no visibility toggling, no filtering, no done overlays, no category controls. They are a raw fallback for data not yet in the PMTiles build. PMTiles layers are the only layers that support toggling (category visibility, done-peak overlay, activity-type filter). Never add PMTiles-style controls or behaviour to GeoJSON layers, and never try to make the two display paths behave the same.
+
 ### Questions vs instructions
 When a message ends with "?", it is a question to be answered in the reply — not an instruction to act on. Answer it before doing anything else, and do not treat it as a directive to change code or behaviour.
 

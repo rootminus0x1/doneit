@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import '../lib/drivepmtiles'; // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig';
 import { buildRasterStyle } from '../lib/tileConfig';
-import type { TrackCategory, PeakShape } from '../hooks/useDriveData';
+import type { TrackCategory, PeakShape, BaggedEntry } from '../hooks/useDriveData';
 import type { LoadedTrack } from '../hooks/useViewportTracks';
 import type { FeatureCollection, Point } from 'geojson';
 import type { TrackBbox } from '../lib/gpxParser';
@@ -93,8 +93,10 @@ interface Props {
     onMove: (center: [number, number], zoom: number) => void;
     onTrackClick: (data: TrackPopupData) => void;
     onTrackHover: (data: TrackPopupData | null) => void;
-    onPeakClick: (name: string, elevation: number, category: string) => void;
+    onPeakClick: (name: string, elevation: number, category: string, lat: number, lng: number) => void;
     onPeakHover?: (name: string, elevation: number, category: string) => void;
+    baggedEntries: BaggedEntry[];
+    hiddenDonePeakCategories: string[];
     onPeakHoverEnd?: () => void;
     onBearingChange?: (bearing: number) => void;
     northTrigger?: number;
@@ -178,6 +180,8 @@ export function MapView({
     hiddenCategories,
     hiddenTrackTypes,
     hiddenPeakCategories,
+    baggedEntries,
+    hiddenDonePeakCategories,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -427,7 +431,10 @@ export function MapView({
                 });
                 map.on('click', lid, e => {
                     const f = e.features?.[0];
-                    if (f) onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category);
+                    if (f) {
+                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0]);
+                    }
                 });
                 if (!IS_TOUCH) {
                     map.on('mouseenter', lid, e => {
@@ -475,8 +482,11 @@ export function MapView({
                 },
             });
             map.on('click', lid, e => {
-                const props = e.features?.[0]?.properties;
-                if (props) onPeakClickRef.current(props.name ?? '', props.ele ?? 0, props.category ?? '');
+                const f = e.features?.[0];
+                if (f) {
+                    const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                    onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0]);
+                }
             });
             if (!IS_TOUCH) {
                 map.on('mouseenter', lid, e => {
@@ -503,6 +513,63 @@ export function MapView({
             }
         }
     }, [peakCategories, hiddenPeakCategories, mapVersion]);
+
+    // Done peaks ✓ overlay — PMTiles categories only (GPX/GeoJSON layers are always shown as-is)
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0) return;
+
+        for (const catName of peakCategories.map(pc => pc.name)) {
+            const sid = `peaks-done-${catName}`;
+            const lid = `peaks-done-symbol-${catName}`;
+            const entries = baggedEntries.filter(e => e.category === catName);
+            const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+                type: 'FeatureCollection',
+                features: entries.map(e => ({
+                    type: 'Feature' as const,
+                    geometry: { type: 'Point' as const, coordinates: [e.lng, e.lat] },
+                    properties: { name: e.name, ele: e.ele, category: e.category },
+                })),
+            };
+            const existing = map.getSource(sid);
+            if (existing) {
+                (existing as maplibregl.GeoJSONSource).setData(geojson);
+            } else {
+                map.addSource(sid, { type: 'geojson', data: geojson });
+                map.addLayer({
+                    id: lid,
+                    type: 'symbol',
+                    source: sid,
+                    layout: {
+                        'text-field': '✓',
+                        'text-size': 11,
+                        'text-anchor': 'bottom-left',
+                        'text-offset': [0.4, 0.2],
+                        'text-allow-overlap': true,
+                        'text-ignore-placement': true,
+                    },
+                    paint: {
+                        'text-color': '#22c55e',
+                        'text-halo-color': '#ffffff',
+                        'text-halo-width': 1.5,
+                    },
+                });
+            }
+        }
+    }, [baggedEntries, peakCategories, mapVersion]);
+
+    // Toggle done-peak ✓ overlay visibility — hidden if category is hidden OR done-peaks are hidden
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0) return;
+        for (const catName of peakCategories.map(pc => pc.name)) {
+            const lid = `peaks-done-symbol-${catName}`;
+            if (map.getLayer(lid)) {
+                const hide = hiddenPeakCategories.includes(catName) || hiddenDonePeakCategories.includes(catName);
+                map.setLayoutProperty(lid, 'visibility', hide ? 'none' : 'visible');
+            }
+        }
+    }, [peakCategories, hiddenPeakCategories, hiddenDonePeakCategories, mapVersion]);
 
     // Sync PMTiles tracks overlay — one vector source covering all built tracks
     useEffect(() => {

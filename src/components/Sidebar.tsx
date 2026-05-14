@@ -5,6 +5,7 @@ interface PeakCategory {
     label: string;
     count: number;
     color: string;
+    indexed: boolean;
 }
 
 interface Props {
@@ -19,6 +20,9 @@ interface Props {
     peakCategories: PeakCategory[];
     hiddenPeakCategories: string[];
     onTogglePeakCategory: (name: string) => void;
+    baggedCountByCategory: Record<string, number>;
+    hiddenDonePeakCategories: string[];
+    onToggleDonePeakCategory: (name: string) => void;
     trackCount: number;
     indexGenerated: string | null;
     unindexedCount: number;
@@ -36,6 +40,9 @@ export function Sidebar({
     peakCategories,
     hiddenPeakCategories,
     onTogglePeakCategory,
+    baggedCountByCategory,
+    hiddenDonePeakCategories,
+    onToggleDonePeakCategory,
     trackCount,
     indexGenerated,
     unindexedCount,
@@ -94,13 +101,11 @@ export function Sidebar({
                     {peakCategories.length > 0 && (
                         <Section label="Peaks">
                             {peakCategories.map(pc => {
-                                const hidden = hiddenPeakCategories.includes(pc.name);
+                                const hidden = pc.indexed && hiddenPeakCategories.includes(pc.name);
+                                const doneHidden = hiddenDonePeakCategories.includes(pc.name);
+                                const doneCount = pc.indexed ? (baggedCountByCategory[pc.name] ?? 0) : 0;
                                 return (
-                                    <button
-                                        key={pc.name}
-                                        style={styles.filterRow}
-                                        onClick={() => onTogglePeakCategory(pc.name)}
-                                    >
+                                    <div key={pc.name} style={styles.filterRow}>
                                         <span
                                             style={{
                                                 ...styles.swatch,
@@ -112,9 +117,30 @@ export function Sidebar({
                                         <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
                                             {pc.label}
                                         </span>
-                                        <span style={styles.count}>{pc.count}</span>
-                                        <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
-                                    </button>
+                                        {doneCount > 0 && (
+                                            <span style={styles.doneCount}>
+                                                {doneCount}/{pc.count}
+                                            </span>
+                                        )}
+                                        {pc.indexed && doneCount > 0 && (
+                                            <button
+                                                style={styles.doneToggleBtn}
+                                                onClick={() => onToggleDonePeakCategory(pc.name)}
+                                                title={doneHidden ? 'Show done' : 'Hide done'}
+                                            >
+                                                {doneHidden ? '○' : '●'}
+                                            </button>
+                                        )}
+                                        {pc.indexed && (
+                                            <button
+                                                style={styles.toggleBtn}
+                                                onClick={() => onTogglePeakCategory(pc.name)}
+                                                title={hidden ? 'Show' : 'Hide'}
+                                            >
+                                                {hidden ? '○' : '●'}
+                                            </button>
+                                        )}
+                                    </div>
                                 );
                             })}
                         </Section>
@@ -218,6 +244,9 @@ const styles: Record<string, React.CSSProperties> = {
     swatch: { width: 12, height: 12, borderRadius: 2, flexShrink: 0 },
     filterLabel: { fontSize: 14, flex: 1, color: '#222' },
     toggle: { fontSize: 12, color: '#1a73e8', flexShrink: 0 },
+    toggleBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#1a73e8', flexShrink: 0, padding: 0 },
+    doneToggleBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#4caf50', flexShrink: 0, padding: 0 },
+    doneCount: { fontSize: 11, color: '#4caf50', flexShrink: 0 },
     metaRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
     count: { fontSize: 11, color: '#999', marginLeft: 'auto' },
     meta: { fontSize: 12, color: '#666', margin: '0 0 4px' },

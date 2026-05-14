@@ -39,6 +39,10 @@ export default function App() {
         tracksPmtilesFileId,
         peaksPmtilesFileId,
         unindexedFiles,
+        baggedEntries,
+        baggedSet,
+        addBaggedEntry,
+        removeBaggedEntry,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
 
@@ -56,7 +60,7 @@ export default function App() {
     const [northTrigger, setNorthTrigger] = useState(0);
     const [hoverPeak, setHoverPeak] = useState<{ name: string; elevation: number; category: string } | null>(null);
     const lastGoodSourceIdRef = useRef<string | null>(null);
-    const [popup, setPopup] = useState<{ title: string; body: string } | null>(null);
+    const [popup, setPopup] = useState<{ title: string; body: string; peakMeta?: { name: string; category: string; lat: number; lng: number; ele: number } } | null>(null);
     const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
     const [clickedTrack, setClickedTrack] = useState<TrackPopupData | null>(null);
 
@@ -69,6 +73,8 @@ export default function App() {
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
     const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
+    const [hiddenDonePeakCategories, setHiddenDonePeakCategories] = useState<string[]>([]);
+    const [confirmDone, setConfirmDone] = useState<{ name: string; category: string; lat: number; lng: number; ele: number } | null>(null);
     const peakDefaultsApplied = useRef(false);
 
     const toggleCategory = useCallback(
@@ -81,6 +87,10 @@ export default function App() {
     );
     const togglePeakCategory = useCallback(
         (c: string) => setHiddenPeakCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
+        [],
+    );
+    const toggleDonePeakCategory = useCallback(
+        (c: string) => setHiddenDonePeakCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
         [],
     );
 
@@ -144,6 +154,7 @@ export default function App() {
                     radius: d.radius ?? 5,
                     opacity: d.opacity ?? 0.9,
                     shape: d.shape ?? ('circle' as const),
+                    indexed: true as const,
                 };
             }),
             ...peakSets.map((ps, i) => {
@@ -157,10 +168,20 @@ export default function App() {
                     radius: d.radius ?? 5,
                     opacity: d.opacity ?? 0.9,
                     shape: d.shape ?? ('circle' as const),
+                    indexed: false as const,
                 };
             }),
         ],
         [peakCategories, peakSets, peakDisplayConfig],
+    );
+
+    const baggedCountByCategory = useMemo(
+        () =>
+            baggedEntries.reduce<Record<string, number>>((acc, e) => {
+                acc[e.category] = (acc[e.category] ?? 0) + 1;
+                return acc;
+            }, {}),
+        [baggedEntries],
     );
 
     const handleTrackClick = useCallback((data: TrackPopupData) => {
@@ -172,8 +193,8 @@ export default function App() {
         setHoverTrack(data);
     }, []);
 
-    const handlePeakClick = useCallback((name: string, elevation: number, category: string) => {
-        setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m` });
+    const handlePeakClick = useCallback((name: string, elevation: number, category: string, lat: number, lng: number) => {
+        setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m`, peakMeta: { name, category, lat, lng, ele: elevation } });
     }, []);
 
     const handlePeakHover = useCallback((name: string, elevation: number, category: string) => {
@@ -224,6 +245,8 @@ export default function App() {
                     hiddenCategories={hiddenCategories}
                     hiddenTrackTypes={hiddenTrackTypes}
                     hiddenPeakCategories={hiddenPeakCategories}
+                    baggedEntries={baggedEntries}
+                    hiddenDonePeakCategories={hiddenDonePeakCategories}
                     flyToBbox={flyToBbox}
                 />
             )}
@@ -282,6 +305,9 @@ export default function App() {
                 peakCategories={enrichedPeakCategories}
                 hiddenPeakCategories={hiddenPeakCategories}
                 onTogglePeakCategory={togglePeakCategory}
+                baggedCountByCategory={baggedCountByCategory}
+                hiddenDonePeakCategories={hiddenDonePeakCategories}
+                onToggleDonePeakCategory={toggleDonePeakCategory}
                 trackCount={trackIndex?.tracks.length ?? 0}
                 indexGenerated={trackIndex?.generated ?? null}
                 unindexedCount={unindexedFiles.length}
@@ -292,9 +318,65 @@ export default function App() {
                     <div style={styles.popup} onClick={e => e.stopPropagation()}>
                         <div style={styles.popupTitle}>{popup.title}</div>
                         {popup.body && <div style={styles.popupBody}>{popup.body}</div>}
+                        {popup.peakMeta && (
+                            <div style={styles.popupActions}>
+                                {baggedSet.has(`${popup.peakMeta.category}:${popup.peakMeta.name}`) ? (
+                                    <button
+                                        style={styles.unmarkBtn}
+                                        onClick={() => {
+                                            removeBaggedEntry(popup.peakMeta!.category, popup.peakMeta!.name);
+                                            setPopup(null);
+                                        }}
+                                    >
+                                        Unmark done
+                                    </button>
+                                ) : (
+                                    <button
+                                        style={styles.markDoneBtn}
+                                        onClick={() => {
+                                            setConfirmDone(popup.peakMeta!);
+                                            setPopup(null);
+                                        }}
+                                    >
+                                        Mark as done
+                                    </button>
+                                )}
+                            </div>
+                        )}
                         <button style={styles.popupClose} onClick={() => setPopup(null)}>
                             ✕
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {confirmDone && (
+                <div style={styles.popupOverlay} onClick={() => setConfirmDone(null)}>
+                    <div style={styles.popup} onClick={e => e.stopPropagation()}>
+                        <div style={styles.popupTitle}>Mark as done?</div>
+                        <div style={styles.popupBody}>{confirmDone.name}</div>
+                        <div style={styles.popupActions}>
+                            <button
+                                style={styles.markDoneBtn}
+                                onClick={() => {
+                                    addBaggedEntry({
+                                        category: confirmDone.category,
+                                        name: confirmDone.name,
+                                        lat: confirmDone.lat,
+                                        lng: confirmDone.lng,
+                                        ele: confirmDone.ele,
+                                        baggedOn: new Date().toISOString(),
+                                        trackFileId: null,
+                                    });
+                                    setConfirmDone(null);
+                                }}
+                            >
+                                Yes
+                            </button>
+                            <button style={styles.cancelBtn} onClick={() => setConfirmDone(null)}>
+                                Cancel
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -434,5 +516,38 @@ const styles: Record<string, React.CSSProperties> = {
         cursor: 'pointer',
         fontSize: 16,
         color: '#888',
+    },
+    popupActions: { display: 'flex', gap: 8, marginTop: 12 },
+    markDoneBtn: {
+        flex: 1,
+        padding: '8px 12px',
+        borderRadius: 8,
+        background: '#4caf50',
+        color: '#fff',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 14,
+        fontWeight: 500,
+    },
+    unmarkBtn: {
+        flex: 1,
+        padding: '8px 12px',
+        borderRadius: 8,
+        background: '#e0e0e0',
+        color: '#333',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 14,
+        fontWeight: 500,
+    },
+    cancelBtn: {
+        flex: 1,
+        padding: '8px 12px',
+        borderRadius: 8,
+        background: '#f5f5f5',
+        color: '#555',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 14,
     },
 };

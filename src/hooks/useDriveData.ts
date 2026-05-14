@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, isReady } from '../lib/dataApi';
+import { upsertJsonFile } from '../lib/driveApi';
 import { parsePeaksGpx, filenameToCategoryLabel } from '../lib/gpxParser';
 import type { TrackIndex } from '../lib/spatialIndex';
 import type { ParsedPeaks } from '../lib/gpxParser';
@@ -26,6 +27,16 @@ export interface RawPeakCategory {
     count: number;
 }
 
+export interface BaggedEntry {
+    category: string;
+    name: string;
+    lat: number;
+    lng: number;
+    ele: number;
+    baggedOn: string;
+    trackFileId: string | null;
+}
+
 export type PeakShape = 'circle' | 'triangle' | 'square' | 'diamond';
 
 export interface PeakCategoryDisplay {
@@ -49,6 +60,10 @@ export interface DriveDataState {
     tracksPmtilesFileId: string | null;
     peaksPmtilesFileId: string | null;
     unindexedFiles: UnindexedFile[];
+    baggedEntries: BaggedEntry[];
+    baggedSet: Set<string>;
+    addBaggedEntry: (entry: BaggedEntry) => void;
+    removeBaggedEntry: (category: string, name: string) => void;
 }
 
 interface DisplayConfig {
@@ -72,17 +87,33 @@ export function useDriveData(token: string | null): DriveDataState {
     const [tracksPmtilesFileId, setTracksPmtilesFileId] = useState<string | null>(null);
     const [peaksPmtilesFileId, setPeaksPmtilesFileId] = useState<string | null>(null);
     const [unindexedFiles, setUnindexedFiles] = useState<UnindexedFile[]>([]);
+    const [baggedEntries, setBaggedEntries] = useState<BaggedEntry[]>([]);
+
+    // Kept in refs so the add/remove callbacks don't need to be recreated when token changes
+    const tokenRef = useRef(token);
+    useEffect(() => { tokenRef.current = token; }, [token]);
+    const peaksFolderIdRef = useRef<string | null>(null);
 
     const loadPeaks = useCallback(async (tok: string | null, rootId: string) => {
         const rootFolders = await api.listFolders(tok, rootId);
         const peaksFolder = rootFolders.find(f => f.name === 'peaks');
         if (!peaksFolder) return;
 
-        const [pmtilesFile, indexFile, displayFile] = await Promise.all([
+        peaksFolderIdRef.current = peaksFolder.id;
+
+        const [pmtilesFile, indexFile, displayFile, baggedFile] = await Promise.all([
             api.findFileByName(tok, 'peaks.pmtiles', peaksFolder.id),
             api.findFileByName(tok, 'peaks-index.json', peaksFolder.id),
             api.findFileByName(tok, 'display.json', peaksFolder.id),
+            api.findFileByName(tok, 'bagged.json', peaksFolder.id),
         ]);
+
+        if (baggedFile) {
+            try {
+                const data = JSON.parse(await api.readFileText(tok, baggedFile.id));
+                if (Array.isArray(data.entries)) setBaggedEntries(data.entries as BaggedEntry[]);
+            } catch { /* ignore unreadable bagged file */ }
+        }
 
         // Parse display file once; derive both config and default-hidden list from it
         let displayConfig: Record<string, PeakCategoryDisplay> = {};
@@ -230,10 +261,41 @@ export function useDriveData(token: string | null): DriveDataState {
             setTracksPmtilesFileId(null);
             setPeaksPmtilesFileId(null);
             setUnindexedFiles([]);
+            setBaggedEntries([]);
+            peaksFolderIdRef.current = null;
             return;
         }
         init(token);
     }, [token, init]);
 
-    return { ready, error, trackIndex, categories, peakSets, peakCategories, peakDisplayConfig, peakDefaultHidden, tracksPmtilesFileId, peaksPmtilesFileId, unindexedFiles };
+    const addBaggedEntry = useCallback((entry: BaggedEntry) => {
+        setBaggedEntries(prev => {
+            const next = [
+                ...prev.filter(e => !(e.category === entry.category && e.name === entry.name)),
+                entry,
+            ];
+            const folderId = peaksFolderIdRef.current;
+            if (tokenRef.current && folderId) {
+                upsertJsonFile(tokenRef.current, 'bagged.json', folderId, { version: 1, entries: next })
+                    .catch(err => console.error('[Drive] failed to save bagged.json:', err));
+            }
+            return next;
+        });
+    }, []);
+
+    const removeBaggedEntry = useCallback((category: string, name: string) => {
+        setBaggedEntries(prev => {
+            const next = prev.filter(e => !(e.category === category && e.name === name));
+            const folderId = peaksFolderIdRef.current;
+            if (tokenRef.current && folderId) {
+                upsertJsonFile(tokenRef.current, 'bagged.json', folderId, { version: 1, entries: next })
+                    .catch(err => console.error('[Drive] failed to save bagged.json:', err));
+            }
+            return next;
+        });
+    }, []);
+
+    const baggedSet = new Set(baggedEntries.map(e => `${e.category}:${e.name}`));
+
+    return { ready, error, trackIndex, categories, peakSets, peakCategories, peakDisplayConfig, peakDefaultHidden, tracksPmtilesFileId, peaksPmtilesFileId, unindexedFiles, baggedEntries, baggedSet, addBaggedEntry, removeBaggedEntry };
 }
