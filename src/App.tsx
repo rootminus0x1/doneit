@@ -60,6 +60,12 @@ export default function App() {
     const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
     const [clickedTrack, setClickedTrack] = useState<TrackPopupData | null>(null);
 
+    const [showVersion, setShowVersion] = useState(true);
+    useEffect(() => {
+        const t = setTimeout(() => setShowVersion(false), 4000);
+        return () => clearTimeout(t);
+    }, []);
+
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
     const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
@@ -245,6 +251,12 @@ export default function App() {
                 )}
             </div>
 
+            {showVersion && (
+                <div style={styles.versionToast}>
+                    {new Date(__BUILD_TIME__).toISOString().slice(0, 16).replace('T', ' ')} UTC
+                </div>
+            )}
+
             {token && !ready && <div style={styles.loadingBanner}>Loading…</div>}
 
             {authError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{authError}</div>}
@@ -399,6 +411,20 @@ const styles: Record<string, React.CSSProperties> = {
     },
     popupTitle: { fontSize: 16, fontWeight: 600, marginBottom: 4, paddingRight: 24 },
     popupBody: { fontSize: 14, color: '#555' },
+    versionToast: {
+        position: 'absolute',
+        top: 60,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(0,0,0,0.55)',
+        color: '#fff',
+        padding: '5px 12px',
+        borderRadius: 12,
+        fontSize: 11,
+        zIndex: 10,
+        pointerEvents: 'none',
+        whiteSpace: 'nowrap',
+    },
     popupClose: {
         position: 'absolute',
         top: 10,

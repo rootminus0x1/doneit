@@ -114,6 +114,10 @@ const PMTILES_LAYER = 'tracks-pmtiles-line';
 const PEAKS_PMTILES_SOURCE = 'peaks-pmtiles';
 const peakPmtilesLayerId = (name: string) => `peaks-pmtiles-symbol-${name}`;
 
+// True on touch-only devices (phones/tablets with no mouse hover support).
+// Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
+const IS_TOUCH = window.matchMedia('(hover: none)').matches;
+
 // Scale peak icons with zoom: small at overview, full-size when zoomed in
 const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15, 1.5] as unknown as maplibregl.ExpressionSpecification;
 
@@ -357,21 +361,23 @@ export function MapView({
                             linkText: track.linkText,
                         });
                 });
-                map.on('mouseenter', lid, e => {
-                    map.getCanvas().style.cursor = 'pointer';
-                    if (e.features?.[0])
-                        onTrackHoverRef.current({
-                            displayName: track.displayName,
-                            trackType: track.trackType,
-                            filename: track.filename,
-                            datetime: track.datetime,
-                            linkText: track.linkText,
-                        });
-                });
-                map.on('mouseleave', lid, () => {
-                    map.getCanvas().style.cursor = '';
-                    onTrackHoverRef.current(null);
-                });
+                if (!IS_TOUCH) {
+                    map.on('mouseenter', lid, e => {
+                        map.getCanvas().style.cursor = 'pointer';
+                        if (e.features?.[0])
+                            onTrackHoverRef.current({
+                                displayName: track.displayName,
+                                trackType: track.trackType,
+                                filename: track.filename,
+                                datetime: track.datetime,
+                                linkText: track.linkText,
+                            });
+                    });
+                    map.on('mouseleave', lid, () => {
+                        map.getCanvas().style.cursor = '';
+                        onTrackHoverRef.current(null);
+                    });
+                }
             }
         }
     }, [loadedTracks, categories, mapVersion]);
@@ -423,15 +429,17 @@ export function MapView({
                     const f = e.features?.[0];
                     if (f) onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category);
                 });
-                map.on('mouseenter', lid, e => {
-                    map.getCanvas().style.cursor = 'pointer';
-                    const f = e.features?.[0];
-                    if (f) onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category);
-                });
-                map.on('mouseleave', lid, () => {
-                    map.getCanvas().style.cursor = '';
-                    onPeakHoverEndRef.current?.();
-                });
+                if (!IS_TOUCH) {
+                    map.on('mouseenter', lid, e => {
+                        map.getCanvas().style.cursor = 'pointer';
+                        const f = e.features?.[0];
+                        if (f) onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category);
+                    });
+                    map.on('mouseleave', lid, () => {
+                        map.getCanvas().style.cursor = '';
+                        onPeakHoverEndRef.current?.();
+                    });
+                }
             }
         }
     }, [loadedPeaks, mapVersion]);
@@ -482,15 +490,17 @@ export function MapView({
                 const props = e.features?.[0]?.properties;
                 if (props) onPeakClickRef.current(props.name ?? '', props.ele ?? 0, props.category ?? '');
             });
-            map.on('mouseenter', lid, e => {
-                map.getCanvas().style.cursor = 'pointer';
-                const props = e.features?.[0]?.properties;
-                if (props) onPeakHoverRef.current?.(props.name ?? '', props.ele ?? 0, pc.name);
-            });
-            map.on('mouseleave', lid, () => {
-                map.getCanvas().style.cursor = '';
-                onPeakHoverEndRef.current?.();
-            });
+            if (!IS_TOUCH) {
+                map.on('mouseenter', lid, e => {
+                    map.getCanvas().style.cursor = 'pointer';
+                    const props = e.features?.[0]?.properties;
+                    if (props) onPeakHoverRef.current?.(props.name ?? '', props.ele ?? 0, pc.name);
+                });
+                map.on('mouseleave', lid, () => {
+                    map.getCanvas().style.cursor = '';
+                    onPeakHoverEndRef.current?.();
+                });
+            }
         }
     }, [peaksPmtilesFileId, peakCategories, mapVersion]);
 
@@ -545,15 +555,17 @@ export function MapView({
             const props = e.features?.[0]?.properties;
             if (props) onTrackClickRef.current(buildTrackPopup(props));
         });
-        map.on('mouseenter', PMTILES_LAYER, e => {
-            map.getCanvas().style.cursor = 'pointer';
-            const props = e.features?.[0]?.properties;
-            if (props) onTrackHoverRef.current(buildTrackPopup(props));
-        });
-        map.on('mouseleave', PMTILES_LAYER, () => {
-            map.getCanvas().style.cursor = '';
-            onTrackHoverRef.current(null);
-        });
+        if (!IS_TOUCH) {
+            map.on('mouseenter', PMTILES_LAYER, e => {
+                map.getCanvas().style.cursor = 'pointer';
+                const props = e.features?.[0]?.properties;
+                if (props) onTrackHoverRef.current(buildTrackPopup(props));
+            });
+            map.on('mouseleave', PMTILES_LAYER, () => {
+                map.getCanvas().style.cursor = '';
+                onTrackHoverRef.current(null);
+            });
+        }
     }, [tracksPmtilesFileId, categories, mapVersion]);
 
     // Apply category/track-type filter to PMTiles tracks layer
