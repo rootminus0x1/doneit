@@ -253,7 +253,7 @@ export default function App() {
 
             {showVersion && (
                 <div style={styles.versionToast}>
-                    {new Date(__BUILD_TIME__).toISOString().slice(0, 16).replace('T', ' ')} UTC
+                    Version: {formatDatetime(__BUILD_TIME__)}
                 </div>
             )}
 

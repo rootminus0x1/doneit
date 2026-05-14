@@ -444,18 +444,6 @@ export function MapView({
         }
     }, [loadedPeaks, mapVersion]);
 
-    // Toggle GeoJSON peak layer visibility by category
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || mapVersion === 0) return;
-        for (const ps of loadedPeaks) {
-            const lid = `peaks-symbol-${ps.category}`;
-            if (map.getLayer(lid)) {
-                map.setLayoutProperty(lid, 'visibility', hiddenPeakCategories.includes(ps.category) ? 'none' : 'visible');
-            }
-        }
-    }, [loadedPeaks, hiddenPeakCategories, mapVersion]);
-
     // Add peaks PMTiles source and one symbol layer per category.
     // Reversed so the first category in the list ends up on top (last-added = highest z-order).
     // Deps include peakCategories: when they arrive after peaksPmtilesFileId, this re-runs
