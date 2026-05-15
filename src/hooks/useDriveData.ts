@@ -59,11 +59,15 @@ export interface DriveDataState {
     peakDefaultHidden: string[];
     tracksPmtilesFileId: string | null;
     peaksPmtilesFileId: string | null;
+    committedBaggedKeys: Set<string>;
     unindexedFiles: UnindexedFile[];
     baggedEntries: BaggedEntry[];
+    revertedEntries: BaggedEntry[];
     baggedSet: Set<string>;
     addBaggedEntry: (entry: BaggedEntry) => void;
     removeBaggedEntry: (category: string, name: string) => void;
+    revertCommittedEntry: (entry: BaggedEntry) => void;
+    unRevertEntry: (category: string, name: string) => void;
 }
 
 interface DisplayConfig {
@@ -86,13 +90,17 @@ export function useDriveData(token: string | null): DriveDataState {
     const [peakDefaultHidden, setPeakDefaultHidden] = useState<string[]>([]);
     const [tracksPmtilesFileId, setTracksPmtilesFileId] = useState<string | null>(null);
     const [peaksPmtilesFileId, setPeaksPmtilesFileId] = useState<string | null>(null);
+    const [committedBaggedKeys, setCommittedBaggedKeys] = useState<Set<string>>(new Set());
     const [unindexedFiles, setUnindexedFiles] = useState<UnindexedFile[]>([]);
     const [baggedEntries, setBaggedEntries] = useState<BaggedEntry[]>([]);
+    const [revertedEntries, setRevertedEntries] = useState<BaggedEntry[]>([]);
 
-    // Kept in refs so the add/remove callbacks don't need to be recreated when token changes
+    // Refs kept in sync with state so callbacks can read current values synchronously
     const tokenRef = useRef(token);
     useEffect(() => { tokenRef.current = token; }, [token]);
     const peaksFolderIdRef = useRef<string | null>(null);
+    const baggedEntriesRef = useRef<BaggedEntry[]>([]);
+    const revertedEntriesRef = useRef<BaggedEntry[]>([]);
 
     const loadPeaks = useCallback(async (tok: string | null, rootId: string) => {
         const rootFolders = await api.listFolders(tok, rootId);
@@ -105,13 +113,18 @@ export function useDriveData(token: string | null): DriveDataState {
             api.findFileByName(tok, 'peaks.pmtiles', peaksFolder.id),
             api.findFileByName(tok, 'peaks-index.json', peaksFolder.id),
             api.findFileByName(tok, 'display.json', peaksFolder.id),
-            api.findFileByName(tok, 'bagged.json', peaksFolder.id),
+            api.findFileByName(tok, 'bagged-pending.json', peaksFolder.id),
         ]);
 
         if (baggedFile) {
             try {
                 const data = JSON.parse(await api.readFileText(tok, baggedFile.id));
-                if (Array.isArray(data.entries)) setBaggedEntries(data.entries as BaggedEntry[]);
+                const entries = Array.isArray(data.entries) ? (data.entries as BaggedEntry[]) : [];
+                const reverted = Array.isArray(data.reverted) ? (data.reverted as BaggedEntry[]) : [];
+                setBaggedEntries(entries);
+                baggedEntriesRef.current = entries;
+                setRevertedEntries(reverted);
+                revertedEntriesRef.current = reverted;
             } catch { /* ignore unreadable bagged file */ }
         }
 
@@ -150,6 +163,7 @@ export function useDriveData(token: string | null): DriveDataState {
                     : cats;
                 setPeakCategories(orderedCats);
                 setPeakDefaultHidden(computeDefaultHidden(orderedCats.map(c => c.name)));
+                setCommittedBaggedKeys(new Set<string>(idx.committedBagged ?? []));
 
                 // Load GPX files not yet in the PMTiles index so they appear immediately
                 const indexedCategories = new Set(cats.map(c => c.name));
@@ -262,40 +276,74 @@ export function useDriveData(token: string | null): DriveDataState {
             setPeaksPmtilesFileId(null);
             setUnindexedFiles([]);
             setBaggedEntries([]);
+            baggedEntriesRef.current = [];
+            setRevertedEntries([]);
+            revertedEntriesRef.current = [];
+            setCommittedBaggedKeys(new Set());
             peaksFolderIdRef.current = null;
             return;
         }
         init(token);
     }, [token, init]);
 
-    const addBaggedEntry = useCallback((entry: BaggedEntry) => {
-        setBaggedEntries(prev => {
-            const next = [
-                ...prev.filter(e => !(e.category === entry.category && e.name === entry.name)),
-                entry,
-            ];
-            const folderId = peaksFolderIdRef.current;
-            if (tokenRef.current && folderId) {
-                upsertJsonFile(tokenRef.current, 'bagged.json', folderId, { version: 1, entries: next })
-                    .catch(err => console.error('[Drive] failed to save bagged.json:', err));
-            }
-            return next;
-        });
+    const saveBagged = useCallback((entries: BaggedEntry[], reverted: BaggedEntry[]) => {
+        const folderId = peaksFolderIdRef.current;
+        if (tokenRef.current && folderId) {
+            upsertJsonFile(tokenRef.current, 'bagged-pending.json', folderId, { version: 1, entries, reverted })
+                .catch(err => console.error('[Drive] failed to save bagged.json:', err));
+        }
     }, []);
 
+    const addBaggedEntry = useCallback((entry: BaggedEntry) => {
+        const newEntries = [
+            ...baggedEntriesRef.current.filter(e => !(e.category === entry.category && e.name === entry.name)),
+            entry,
+        ];
+        const newReverted = revertedEntriesRef.current.filter(
+            e => !(e.category === entry.category && e.name === entry.name),
+        );
+        baggedEntriesRef.current = newEntries;
+        revertedEntriesRef.current = newReverted;
+        setBaggedEntries(newEntries);
+        setRevertedEntries(newReverted);
+        saveBagged(newEntries, newReverted);
+    }, [saveBagged]);
+
     const removeBaggedEntry = useCallback((category: string, name: string) => {
-        setBaggedEntries(prev => {
-            const next = prev.filter(e => !(e.category === category && e.name === name));
-            const folderId = peaksFolderIdRef.current;
-            if (tokenRef.current && folderId) {
-                upsertJsonFile(tokenRef.current, 'bagged.json', folderId, { version: 1, entries: next })
-                    .catch(err => console.error('[Drive] failed to save bagged.json:', err));
-            }
-            return next;
-        });
-    }, []);
+        const newEntries = baggedEntriesRef.current.filter(e => !(e.category === category && e.name === name));
+        baggedEntriesRef.current = newEntries;
+        setBaggedEntries(newEntries);
+        saveBagged(newEntries, revertedEntriesRef.current);
+    }, [saveBagged]);
+
+    const revertCommittedEntry = useCallback((entry: BaggedEntry) => {
+        const newEntries = baggedEntriesRef.current.filter(e => !(e.category === entry.category && e.name === entry.name));
+        const newReverted = [
+            ...revertedEntriesRef.current.filter(e => !(e.category === entry.category && e.name === entry.name)),
+            entry,
+        ];
+        baggedEntriesRef.current = newEntries;
+        revertedEntriesRef.current = newReverted;
+        setBaggedEntries(newEntries);
+        setRevertedEntries(newReverted);
+        saveBagged(newEntries, newReverted);
+    }, [saveBagged]);
+
+    const unRevertEntry = useCallback((category: string, name: string) => {
+        const reverted = revertedEntriesRef.current.find(e => e.category === category && e.name === name);
+        const newReverted = revertedEntriesRef.current.filter(e => !(e.category === category && e.name === name));
+        const newEntries = [
+            ...baggedEntriesRef.current.filter(e => !(e.category === category && e.name === name)),
+            ...(reverted ? [reverted] : []),
+        ];
+        baggedEntriesRef.current = newEntries;
+        revertedEntriesRef.current = newReverted;
+        setBaggedEntries(newEntries);
+        setRevertedEntries(newReverted);
+        saveBagged(newEntries, newReverted);
+    }, [saveBagged]);
 
     const baggedSet = new Set(baggedEntries.map(e => `${e.category}:${e.name}`));
 
-    return { ready, error, trackIndex, categories, peakSets, peakCategories, peakDisplayConfig, peakDefaultHidden, tracksPmtilesFileId, peaksPmtilesFileId, unindexedFiles, baggedEntries, baggedSet, addBaggedEntry, removeBaggedEntry };
+    return { ready, error, trackIndex, categories, peakSets, peakCategories, peakDisplayConfig, peakDefaultHidden, tracksPmtilesFileId, peaksPmtilesFileId, committedBaggedKeys, unindexedFiles, baggedEntries, revertedEntries, baggedSet, addBaggedEntry, removeBaggedEntry, revertCommittedEntry, unRevertEntry };
 }

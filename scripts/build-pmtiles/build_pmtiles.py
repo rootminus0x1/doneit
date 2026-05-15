@@ -216,6 +216,7 @@ def parse_gpx_coords(gpx_path: Path, filename: str) -> list[list[list[float]]]:
 
 
 def load_gpx_cache(track_names: dict[str, Path]) -> dict[str, Any]:
+    """Returns cached GPX entries dict."""
     if GPX_CACHE_NAME not in track_names:
         return {}
     try:
@@ -258,6 +259,10 @@ def build_features_from_cache(
     for coords in entry["tracks"]:
         if not coords:
             continue
+        length_km = round(
+            sum(haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0]) for i in range(1, len(coords))) / 1000,
+            2,
+        ) if len(coords) > 1 else 0.0
         features.append({
             "type": "Feature",
             "geometry": {"type": "LineString", "coordinates": coords},
@@ -270,6 +275,7 @@ def build_features_from_cache(
                 "datetime": dt,
                 "track_type": meta.get("trackType"),
                 "link_text": meta.get("linkText"),
+                "length_km": length_km,
             },
         })
     return features
@@ -312,6 +318,7 @@ def auto_detect_bagged(
     tracks_by_file_id: dict[str, list[list[float]]],
     all_peaks: dict[str, list[dict[str, Any]]],
     existing_keys: set[str],
+    reverted_keys: set[str],
     threshold_m: float,
 ) -> list[dict[str, Any]]:
     """Return new BaggedEntry dicts for peaks within threshold_m of any track point."""
@@ -331,7 +338,7 @@ def auto_detect_bagged(
     for category, waypoints in all_peaks.items():
         for wpt in waypoints:
             key = f"{category}:{wpt['name']}"
-            if key in existing_keys:
+            if key in existing_keys or key in reverted_keys:
                 continue
             wlat = float(wpt["lat"])
             wlng = float(wpt["lng"])
@@ -363,31 +370,47 @@ def auto_detect_bagged(
     return new_entries
 
 
+PENDING_FILENAME = "bagged-pending.json"
+
+
 def build_peaks(
     peaks_folder: Path,
     elapsed: Callable[[], str],
     tracks_by_file_id: dict[str, list[list[float]]],
     bag_distance_m: float,
 ) -> None:
-    """Build peaks.pmtiles from .gpx waypoint files in the peaks folder."""
+    """Build peaks.pmtiles from .gpx waypoint files in the peaks folder.
+
+    Reads bagged-pending.json, commits entries/reverts to PMTiles, then deletes the file.
+    """
     peaks_names = list_by_name(peaks_folder)
     peak_files = {name: path for name, path in peaks_names.items() if name.lower().endswith(".gpx")}
     if not peak_files:
         print("No .gpx files in peaks/ — skipping peaks PMTiles")
         return
 
-    # Load existing bagged.json
+    # Use existing GVFS path if the pending file exists so we overwrite in place
+    bagged_path: Path = peaks_names.get(PENDING_FILENAME, peaks_folder / PENDING_FILENAME)
     bagged_entries: list[dict[str, Any]] = []
-    if "bagged.json" in peaks_names:
+    reverted_entries: list[dict[str, Any]] = []
+    if PENDING_FILENAME in peaks_names:
         try:
-            data = json.loads(peaks_names["bagged.json"].read_text())
+            data = json.loads(bagged_path.read_text())
             if isinstance(data.get("entries"), list):
                 bagged_entries = data["entries"]
-                print(f"  Loaded {len(bagged_entries)} bagged entries from bagged.json")
+                print(f"  Loaded {len(bagged_entries)} pending bagged entries")
+            if isinstance(data.get("reverted"), list):
+                reverted_entries = data["reverted"]
+                if reverted_entries:
+                    print(f"  {len(reverted_entries)} pending revert(s)")
         except Exception as e:
-            print(f"Warning: could not read bagged.json: {e}", file=sys.stderr)
+            print(f"Warning: could not read {PENDING_FILENAME}: {e}", file=sys.stderr)
 
     bagged_keys: set[str] = {f"{e['category']}:{e['name']}" for e in bagged_entries}
+    reverted_keys: set[str] = {f"{e['category']}:{e['name']}" for e in reverted_entries}
+
+    # Peaks in reverted are set done:false — remove from bagged_keys in case they overlap
+    bagged_keys -= reverted_keys
 
     print(f"\nBuilding peaks.pmtiles from {len(peak_files)} file(s) ...")
     t_phase = time.monotonic()
@@ -398,17 +421,21 @@ def build_peaks(
         category = filename[:-4].lower()
         all_peaks[category] = parse_gpx_waypoints(gvfs_path, filename)
 
-    # Auto-detect newly bagged peaks from tracks
+    # Auto-detect newly bagged peaks from tracks (skip already bagged or reverted)
     if tracks_by_file_id:
-        new_detections = auto_detect_bagged(tracks_by_file_id, all_peaks, bagged_keys, bag_distance_m)
+        new_detections = auto_detect_bagged(tracks_by_file_id, all_peaks, bagged_keys, reverted_keys, bag_distance_m)
         if new_detections:
             print(f"  Auto-detected {len(new_detections)} newly bagged peak(s):")
             for e in new_detections:
                 print(f"    {e['category']}/{e['name']}")
             bagged_entries.extend(new_detections)
-            bagged_data: dict[str, object] = {"version": 1, "entries": bagged_entries}
-            (peaks_folder / "bagged.json").write_text(json.dumps(bagged_data, indent=2))
-            print("  Updated bagged.json written to Drive")
+            for e in new_detections:
+                bagged_keys.add(f"{e['category']}:{e['name']}")
+            bagged_path.write_text(json.dumps({"version": 1, "entries": bagged_entries, "reverted": reverted_entries}, indent=2))
+            print(f"  Updated {PENDING_FILENAME} written to Drive")
+
+    # Lookup for bagged metadata to embed in PMTiles features
+    bagged_info: dict[str, dict[str, Any]] = {f"{e['category']}:{e['name']}": e for e in bagged_entries}
 
     with tempfile.TemporaryDirectory(prefix="doneit-peaks-") as tmpdir:
         tmp = Path(tmpdir)
@@ -420,6 +447,7 @@ def build_peaks(
             for category, waypoints in sorted(all_peaks.items()):
                 for wpt in waypoints:
                     key = f"{category}:{wpt['name']}"
+                    info = bagged_info.get(key)
                     out.write(json.dumps({
                         "type": "Feature",
                         "geometry": {"type": "Point", "coordinates": [wpt["lng"], wpt["lat"]]},
@@ -428,6 +456,8 @@ def build_peaks(
                             "ele": wpt["ele"],
                             "category": category,
                             "done": key in bagged_keys,
+                            "baggedOn": info["baggedOn"] if info else None,
+                            "trackFileId": info["trackFileId"] if info else None,
                         },
                     }) + "\n")
                     total += 1
@@ -463,8 +493,15 @@ def build_peaks(
             "version": 1,
             "generated": datetime.now(timezone.utc).isoformat(),
             "categories": index_categories,
+            "committedBagged": list(bagged_keys),
         }
         (peaks_folder / "peaks-index.json").write_text(json.dumps(index_data, indent=2))
+
+        # Pending file fully committed — delete so the next build starts clean
+        if bagged_path.exists():
+            bagged_path.unlink()
+            print(f"  Deleted {PENDING_FILENAME} (committed to PMTiles)")
+
         print(f"Peaks done: {total} waypoints {elapsed()}")
 
 
@@ -540,8 +577,7 @@ def main() -> None:
             print(f"Warning: could not read tracks-index.json: {e}", file=sys.stderr)
 
     # Load GPX cache (metadata + coordinates, keyed by category/filename)
-    cache_entries: dict[str, Any] = load_gpx_cache(track_names)
-    cache_updated = False
+    cache_entries = load_gpx_cache(track_names)
 
     # Discover category subfolders
     category_folders: dict[str, Path] = {
@@ -584,7 +620,6 @@ def main() -> None:
         for (cat, fn, path), meta in zip(uncached_gpx, new_metas):
             tracks_coords = parse_gpx_coords(path, fn)
             cache_entries[f"{cat}/{fn}"] = {"meta": meta, "tracks": tracks_coords}
-            cache_updated = True
         print(f"Phase 3 done [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
     else:
         print(f"All {len(all_gpx)} tracks found in cache — skipping metadata extraction and GPX parsing {elapsed()}")
@@ -631,7 +666,6 @@ def main() -> None:
                         "trackType": props["track_type"],
                         "country": country,
                         "bbox": bbox,
-                        "inPmtiles": True,
                     })
 
         if total == 0:
@@ -650,13 +684,6 @@ def main() -> None:
             for line in unknown_country_tracks:
                 print(line, file=sys.stderr)
             print("   No sampled point on these tracks fell within any country polygon.\n", file=sys.stderr)
-
-        # Save updated cache to Drive
-        if cache_updated:
-            print(f"Saving GPX cache ({len(cache_entries)} entries) to Google Drive ...")
-            t_phase = time.monotonic()
-            save_gpx_cache(tracks_folder, cache_entries)
-            print(f"Cache saved [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
 
         # Run tippecanoe
         pmtiles_out = tmp / "tracks.pmtiles"
@@ -716,6 +743,12 @@ def main() -> None:
             build_peaks(peaks_folder, elapsed, tracks_by_file_id, args.bag_distance)
         else:
             print("No peaks/ folder — skipping peaks PMTiles")
+
+        if uncached_gpx:
+            print(f"Saving GPX cache ({len(cache_entries)} entries) to Google Drive ...")
+            t_phase = time.monotonic()
+            save_gpx_cache(tracks_folder, cache_entries)
+            print(f"Cache saved [{time.monotonic() - t_phase:.1f}s] {elapsed()}")
 
         print(f"Done. {elapsed()}")
 

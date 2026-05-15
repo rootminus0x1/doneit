@@ -58,6 +58,8 @@ export interface TrackPopupData {
     filename: string;
     datetime: string | null;
     linkText: string | null;
+    fileId: string | null;
+    lengthKm: number | null;
 }
 
 export interface LoadedPeaks {
@@ -93,10 +95,11 @@ interface Props {
     onMove: (center: [number, number], zoom: number) => void;
     onTrackClick: (data: TrackPopupData) => void;
     onTrackHover: (data: TrackPopupData | null) => void;
-    onPeakClick: (name: string, elevation: number, category: string, lat: number, lng: number) => void;
+    onPeakClick: (name: string, elevation: number, category: string, lat: number, lng: number, doneInPmtiles: boolean, baggedOn: string | null, trackFileId: string | null) => void;
     onPeakHover?: (name: string, elevation: number, category: string) => void;
     baggedEntries: BaggedEntry[];
-    hiddenDonePeakCategories: string[];
+    revertedEntries: BaggedEntry[];
+    committedBaggedKeys: Set<string>;
     onPeakHoverEnd?: () => void;
     onBearingChange?: (bearing: number) => void;
     northTrigger?: number;
@@ -119,6 +122,36 @@ const peakPmtilesLayerId = (name: string) => `peaks-pmtiles-symbol-${name}`;
 // True on touch-only devices (phones/tablets with no mouse hover support).
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
 const IS_TOUCH = window.matchMedia('(hover: none)').matches;
+
+const DONE_TICK_LAYOUT = {
+    'text-field': '✔',
+    'text-size': 25,
+    'text-anchor': 'center' as const,
+    'text-offset': [0.15, -0.2] as [number, number],
+    'text-allow-overlap': true,
+    'text-ignore-placement': true,
+};
+
+const DONE_TICK_PAINT = {
+    'text-color': '#000000',
+    'text-halo-color': '#ffffff',
+    'text-halo-width': 1,
+};
+
+const REVERTED_TICK_LAYOUT = {
+    'text-field': '✗',
+    'text-size': 25,
+    'text-anchor': 'center' as const,
+    'text-offset': [0.15, -0.2] as [number, number],
+    'text-allow-overlap': true,
+    'text-ignore-placement': true,
+};
+
+const REVERTED_TICK_PAINT = {
+    'text-color': '#cc0000',
+    'text-halo-color': '#ffffff',
+    'text-halo-width': 1,
+};
 
 // Scale peak icons with zoom: small at overview, full-size when zoomed in
 const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15, 1.5] as unknown as maplibregl.ExpressionSpecification;
@@ -151,6 +184,8 @@ function buildTrackPopup(props: Record<string, unknown>): TrackPopupData {
         filename: String(props.filename ?? ''),
         datetime: props.datetime ? String(props.datetime) : null,
         linkText: props.link_text ? String(props.link_text) : null,
+        fileId: props.file_id ? String(props.file_id) : null,
+        lengthKm: typeof props.length_km === 'number' ? props.length_km : null,
     };
 }
 
@@ -181,7 +216,8 @@ export function MapView({
     hiddenTrackTypes,
     hiddenPeakCategories,
     baggedEntries,
-    hiddenDonePeakCategories,
+    revertedEntries,
+    committedBaggedKeys,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -363,6 +399,8 @@ export function MapView({
                             filename: track.filename,
                             datetime: track.datetime,
                             linkText: track.linkText,
+                            fileId: track.fileId,
+                            lengthKm: null,
                         });
                 });
                 if (!IS_TOUCH) {
@@ -375,6 +413,8 @@ export function MapView({
                                 filename: track.filename,
                                 datetime: track.datetime,
                                 linkText: track.linkText,
+                                fileId: track.fileId,
+                                lengthKm: null,
                             });
                     });
                     map.on('mouseleave', lid, () => {
@@ -433,7 +473,7 @@ export function MapView({
                     const f = e.features?.[0];
                     if (f) {
                         const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0]);
+                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0], false, null, null);
                     }
                 });
                 if (!IS_TOUCH) {
@@ -485,7 +525,7 @@ export function MapView({
                 const f = e.features?.[0];
                 if (f) {
                     const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                    onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0]);
+                    onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0], f.properties?.done === true, f.properties?.baggedOn ?? null, f.properties?.trackFileId ?? null);
                 }
             });
             if (!IS_TOUCH) {
@@ -499,6 +539,22 @@ export function MapView({
                     onPeakHoverEndRef.current?.();
                 });
             }
+
+            const doneLid = `${lid}-done-tick`;
+            if (!map.getLayer(doneLid)) {
+                map.addLayer({
+                    id: doneLid,
+                    type: 'symbol',
+                    source: PEAKS_PMTILES_SOURCE,
+                    'source-layer': 'peaks',
+                    filter: ['all',
+                        ['==', ['get', 'category'], pc.name],
+                        ['==', ['get', 'done'], true],
+                    ] as unknown as maplibregl.FilterSpecification,
+                    layout: DONE_TICK_LAYOUT,
+                    paint: DONE_TICK_PAINT,
+                });
+            }
         }
     }, [peaksPmtilesFileId, peakCategories, mapVersion]);
 
@@ -508,13 +564,16 @@ export function MapView({
         if (!map) return;
         for (const pc of peakCategories) {
             const lid = peakPmtilesLayerId(pc.name);
-            if (map.getLayer(lid)) {
-                map.setLayoutProperty(lid, 'visibility', hiddenPeakCategories.includes(pc.name) ? 'none' : 'visible');
-            }
+            const vis = hiddenPeakCategories.includes(pc.name) ? 'none' : 'visible';
+            if (map.getLayer(lid))
+                map.setLayoutProperty(lid, 'visibility', vis);
+            const doneLid = `${lid}-done-tick`;
+            if (map.getLayer(doneLid))
+                map.setLayoutProperty(doneLid, 'visibility', vis);
         }
     }, [peakCategories, hiddenPeakCategories, mapVersion]);
 
-    // Done peaks ✓ overlay — PMTiles categories only (GPX/GeoJSON layers are always shown as-is)
+    // ✔ overlay — pending bagged entries not yet committed to PMTiles (always visible)
     useEffect(() => {
         const map = mapRef.current;
         if (!map || mapVersion === 0) return;
@@ -522,13 +581,15 @@ export function MapView({
         for (const catName of peakCategories.map(pc => pc.name)) {
             const sid = `peaks-done-${catName}`;
             const lid = `peaks-done-symbol-${catName}`;
-            const entries = baggedEntries.filter(e => e.category === catName);
+            const pending = baggedEntries.filter(
+                e => e.category === catName && !committedBaggedKeys.has(`${e.category}:${e.name}`),
+            );
             const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
                 type: 'FeatureCollection',
-                features: entries.map(e => ({
+                features: pending.map(e => ({
                     type: 'Feature' as const,
                     geometry: { type: 'Point' as const, coordinates: [e.lng, e.lat] },
-                    properties: { name: e.name, ele: e.ele, category: e.category },
+                    properties: { name: e.name, ele: e.ele, category: e.category, baggedOn: e.baggedOn, trackFileId: e.trackFileId },
                 })),
             };
             const existing = map.getSource(sid);
@@ -536,40 +597,54 @@ export function MapView({
                 (existing as maplibregl.GeoJSONSource).setData(geojson);
             } else {
                 map.addSource(sid, { type: 'geojson', data: geojson });
-                map.addLayer({
-                    id: lid,
-                    type: 'symbol',
-                    source: sid,
-                    layout: {
-                        'text-field': '✓',
-                        'text-size': 11,
-                        'text-anchor': 'bottom-left',
-                        'text-offset': [0.4, 0.2],
-                        'text-allow-overlap': true,
-                        'text-ignore-placement': true,
-                    },
-                    paint: {
-                        'text-color': '#22c55e',
-                        'text-halo-color': '#ffffff',
-                        'text-halo-width': 1.5,
-                    },
+                map.addLayer({ id: lid, type: 'symbol', source: sid, layout: DONE_TICK_LAYOUT, paint: DONE_TICK_PAINT });
+                map.on('click', lid, e => {
+                    const f = e.features?.[0];
+                    if (f) {
+                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, f.properties?.category ?? catName, coords[1], coords[0], false, f.properties?.baggedOn ?? null, f.properties?.trackFileId ?? null);
+                    }
                 });
             }
         }
-    }, [baggedEntries, peakCategories, mapVersion]);
+    }, [baggedEntries, committedBaggedKeys, peakCategories, mapVersion]);
 
-    // Toggle done-peak ✓ overlay visibility — hidden if category is hidden OR done-peaks are hidden
+    // ✗ overlay — reverted entries that are still committed as done in PMTiles (always visible)
     useEffect(() => {
         const map = mapRef.current;
         if (!map || mapVersion === 0) return;
+
         for (const catName of peakCategories.map(pc => pc.name)) {
-            const lid = `peaks-done-symbol-${catName}`;
-            if (map.getLayer(lid)) {
-                const hide = hiddenPeakCategories.includes(catName) || hiddenDonePeakCategories.includes(catName);
-                map.setLayoutProperty(lid, 'visibility', hide ? 'none' : 'visible');
+            const sid = `peaks-reverted-${catName}`;
+            const lid = `peaks-reverted-symbol-${catName}`;
+            const stale = revertedEntries.filter(
+                e => e.category === catName && committedBaggedKeys.has(`${e.category}:${e.name}`),
+            );
+            const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+                type: 'FeatureCollection',
+                features: stale.map(e => ({
+                    type: 'Feature' as const,
+                    geometry: { type: 'Point' as const, coordinates: [e.lng, e.lat] },
+                    properties: { name: e.name, ele: e.ele, category: e.category, baggedOn: e.baggedOn, trackFileId: e.trackFileId },
+                })),
+            };
+            const existing = map.getSource(sid);
+            if (existing) {
+                (existing as maplibregl.GeoJSONSource).setData(geojson);
+            } else {
+                map.addSource(sid, { type: 'geojson', data: geojson });
+                map.addLayer({ id: lid, type: 'symbol', source: sid, layout: REVERTED_TICK_LAYOUT, paint: REVERTED_TICK_PAINT });
+                map.on('click', lid, e => {
+                    const f = e.features?.[0];
+                    if (f) {
+                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, f.properties?.category ?? catName, coords[1], coords[0], true, f.properties?.baggedOn ?? null, f.properties?.trackFileId ?? null);
+                    }
+                });
             }
         }
-    }, [peakCategories, hiddenPeakCategories, hiddenDonePeakCategories, mapVersion]);
+    }, [revertedEntries, committedBaggedKeys, peakCategories, mapVersion]);
+
 
     // Sync PMTiles tracks overlay — one vector source covering all built tracks
     useEffect(() => {

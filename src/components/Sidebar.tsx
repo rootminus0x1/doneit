@@ -21,8 +21,6 @@ interface Props {
     hiddenPeakCategories: string[];
     onTogglePeakCategory: (name: string) => void;
     baggedCountByCategory: Record<string, number>;
-    hiddenDonePeakCategories: string[];
-    onToggleDonePeakCategory: (name: string) => void;
     trackCount: number;
     indexGenerated: string | null;
     unindexedCount: number;
@@ -41,8 +39,6 @@ export function Sidebar({
     hiddenPeakCategories,
     onTogglePeakCategory,
     baggedCountByCategory,
-    hiddenDonePeakCategories,
-    onToggleDonePeakCategory,
     trackCount,
     indexGenerated,
     unindexedCount,
@@ -102,10 +98,13 @@ export function Sidebar({
                         <Section label="Peaks">
                             {peakCategories.map(pc => {
                                 const hidden = pc.indexed && hiddenPeakCategories.includes(pc.name);
-                                const doneHidden = hiddenDonePeakCategories.includes(pc.name);
                                 const doneCount = pc.indexed ? (baggedCountByCategory[pc.name] ?? 0) : 0;
                                 return (
-                                    <div key={pc.name} style={styles.filterRow}>
+                                    <button
+                                        key={pc.name}
+                                        style={{ ...styles.filterRow, cursor: pc.indexed ? 'pointer' : 'default' }}
+                                        onClick={pc.indexed ? () => onTogglePeakCategory(pc.name) : undefined}
+                                    >
                                         <span
                                             style={{
                                                 ...styles.swatch,
@@ -122,25 +121,10 @@ export function Sidebar({
                                                 {doneCount}/{pc.count}
                                             </span>
                                         )}
-                                        {pc.indexed && doneCount > 0 && (
-                                            <button
-                                                style={styles.doneToggleBtn}
-                                                onClick={() => onToggleDonePeakCategory(pc.name)}
-                                                title={doneHidden ? 'Show done' : 'Hide done'}
-                                            >
-                                                {doneHidden ? '○' : '●'}
-                                            </button>
-                                        )}
                                         {pc.indexed && (
-                                            <button
-                                                style={styles.toggleBtn}
-                                                onClick={() => onTogglePeakCategory(pc.name)}
-                                                title={hidden ? 'Show' : 'Hide'}
-                                            >
-                                                {hidden ? '○' : '●'}
-                                            </button>
+                                            <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
                                         )}
-                                    </div>
+                                    </button>
                                 );
                             })}
                         </Section>

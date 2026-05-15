@@ -9,7 +9,6 @@ export interface IndexEntry {
     country: string | null;
     trackType: string | null;
     bbox: TrackBbox;
-    inPmtiles?: boolean;
 }
 
 export interface TrackIndex {
