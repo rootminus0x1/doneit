@@ -42,7 +42,7 @@ _doneit = pipeline.find_folder(_drive_root, _FOLDER)
 _tracks_folder = pipeline.find_folder(_doneit, "tracks")
 _track_names = pipeline.list_by_name(_tracks_folder)
 
-_cache_path: Path = _track_names.get(pipeline.GPX_CACHE_NAME, _tracks_folder / pipeline.GPX_CACHE_NAME)
+_cache_path: Path = pipeline.GPX_CACHE_PATH
 
 _peaks_folder: Path | None = pipeline.find_folder_optional(_doneit, "peaks")
 _peaks_names: dict[str, Path] = pipeline.list_by_name(_peaks_folder) if _peaks_folder else {}

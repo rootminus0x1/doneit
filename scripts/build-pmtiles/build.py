@@ -99,18 +99,12 @@ def main() -> None:
         sys.path.insert(0, str(HERE))
         import pipeline  # noqa: PLC0415
 
-        drive_root = pipeline.find_gdrive_root()
-        doneit = pipeline.find_folder(drive_root, args.folder)
-        tracks_folder = pipeline.find_folder(doneit, "tracks")
-        track_names = pipeline.list_by_name(tracks_folder)
-        cache_path: Path = track_names.get(
-            pipeline.GPX_CACHE_NAME, tracks_folder / pipeline.GPX_CACHE_NAME
-        )
+        cache_path: Path = pipeline.GPX_CACHE_PATH
 
         if args.force:
             if cache_path.exists():
                 cache_path.unlink()
-                print(f"Deleted {pipeline.GPX_CACHE_NAME}")
+                print(f"Deleted {cache_path.name}")
             if db_path.exists():
                 db_path.unlink()
                 print("Deleted .doit.db")

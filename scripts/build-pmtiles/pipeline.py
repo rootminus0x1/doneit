@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 GVFS_BASE = Path(f"/run/user/{os.getuid()}/gvfs")
-GPX_CACHE_NAME = "gpx-cache.json"
+GPX_CACHE_PATH = Path(__file__).parent / "gpx-cache.json"
 PEAKS_INDEX_NAME = "peaks-index.json"
 COUNTRIES_URL = "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
 COUNTRIES_PATH = Path(__file__).parent.parent.parent / "public" / "ne_110m_countries.geojson"
