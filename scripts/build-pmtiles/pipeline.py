@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -120,10 +121,23 @@ def load_peaks_index(peaks_index_path: Path) -> dict[str, Any]:
         return {"version": 2, "generated": "", "categories": [], "bagged": []}
 
 
+_PEAKS_INDEX_KEYS = {"version", "generated", "categories", "bagged", "peak_hash", "bag_distance"}
+
 def save_peaks_index(peaks_index_path: Path, index: dict[str, Any]) -> None:
-    index["version"] = 2
-    index["generated"] = datetime.now(timezone.utc).isoformat()
-    peaks_index_path.write_text(json.dumps(index, indent=2))
+    out = {k: v for k, v in index.items() if k in _PEAKS_INDEX_KEYS}
+    out["version"] = 2
+    out["generated"] = datetime.now(timezone.utc).isoformat()
+    # Deduplicate by track filename; entries without "track" (manual baggings) are always kept.
+    seen: set[str] = set()
+    deduped = []
+    for entry in out.get("bagged", []):
+        track = entry.get("track")
+        if track is None or track not in seen:
+            if track is not None:
+                seen.add(track)
+            deduped.append(entry)
+    out["bagged"] = deduped
+    peaks_index_path.write_text(json.dumps(out, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -386,65 +400,136 @@ def run_parse_and_bag_tracks(
     Caller is responsible for saving the returned cache dict.
     If peaks_gpx_files and peaks_index_path are provided, peaks-index.json
     is updated in place with newly detected baggings.
+
+    Full re-bag is triggered automatically when peaks content or bag_distance changes.
     """
     cache = load_gpx_cache(cache_path)
 
+    # --- Phase 1: check which tracks need re-parsing ---
+    # Fast path: use cached mtime; only read the file for MD5 if mtime changed.
+    t0 = time.perf_counter()
     to_parse: list[tuple[str, str, Path, str]] = []
+    md5_reads = 0
     for category, filename, gvfs_path in all_gpx:
         key = f"{category}/{filename}"
-        current_md5 = compute_file_md5(gvfs_path)
         entry = cache.get(key)
+        if entry and "mtime" in entry:
+            try:
+                if gvfs_path.stat().st_mtime == entry["mtime"]:
+                    continue
+            except OSError:
+                pass
+        md5_reads += 1
+        current_md5 = compute_file_md5(gvfs_path)
         if entry is None or entry.get("md5") != current_md5:
             to_parse.append((category, filename, gvfs_path, current_md5))
+        elif entry:
+            try:
+                entry["mtime"] = gvfs_path.stat().st_mtime
+            except OSError:
+                pass
+    skipped = len(all_gpx) - md5_reads
+    print(f"  {len(to_parse)} of {len(all_gpx)} track(s) changed"
+          f" — {skipped} skipped by mtime, {md5_reads} read ({time.perf_counter() - t0:.1f}s)")
 
-    if not to_parse:
-        print(f"All {len(all_gpx)} tracks in cache and unchanged")
-        return cache
-
-    print(f"Parsing {len(to_parse)} new/changed track(s) ...")
-    new_metas = extract_gpx_metadata_batch([p for _, _, p, _ in to_parse])
-
-    for (cat, fn, path, md5), meta in zip(to_parse, new_metas):
-        key = f"{cat}/{fn}"
-        tracks_coords = parse_gpx_coords(path, fn)
-        cache[key] = {"md5": md5, "meta": meta, "tracks": tracks_coords}
-        print(f"  cached {key}")
-
+    # --- Phase 2: load peaks (before early-return so a peaks-only change triggers re-bag) ---
+    all_peaks: dict[str, list[dict[str, Any]]] = {}
+    peaks_index: dict[str, Any] | None = None
+    full_rebag = False
     if peaks_gpx_files and peaks_index_path:
-        all_peaks: dict[str, list[dict[str, Any]]] = {}
+        t1 = time.perf_counter()
         for peak_filename, gvfs_path in sorted(peaks_gpx_files.items()):
             category = peak_filename[:-4].lower()
             all_peaks[category] = parse_gpx_waypoints(gvfs_path, peak_filename)
+        print(f"  peaks loaded ({time.perf_counter() - t1:.1f}s)")
 
+        for category, waypoints in sorted(all_peaks.items()):
+            seen: dict[str, int] = {}
+            for wpt in waypoints:
+                seen[wpt["name"]] = seen.get(wpt["name"], 0) + 1
+            dupes = sorted(name for name, count in seen.items() if count > 1)
+            if dupes:
+                print(f"  ⚠ duplicate names in {category}: {', '.join(dupes)}", file=sys.stderr)
+
+        peak_hash = hashlib.md5(
+            json.dumps(
+                {cat: sorted(w["name"] for w in wpts) for cat, wpts in sorted(all_peaks.items())}
+            ).encode()
+        ).hexdigest()
         peaks_index = load_peaks_index(peaks_index_path)
         peaks_index["categories"] = [
             {"name": cat, "count": len(wpts)} for cat, wpts in sorted(all_peaks.items())
         ]
+        full_rebag = False
+        if peaks_index.get("peak_hash") != peak_hash:
+            print("  peaks content changed — triggering full re-bag")
+            full_rebag = True
+        elif peaks_index.get("bag_distance") != bag_distance_m:
+            print(f"  bag distance changed to {bag_distance_m} m — triggering full re-bag")
+            full_rebag = True
+        peaks_index["peak_hash"] = peak_hash
+        peaks_index["bag_distance"] = bag_distance_m
 
-        # Remove stale bagging entries for tracks being re-processed
-        reprocessed_filenames = {fn for _, fn, _, _ in to_parse}
-        peaks_index["bagged"] = [
-            e for e in peaks_index.get("bagged", [])
-            if e["track"] not in reprocessed_filenames
-        ]
+    if not to_parse and not full_rebag:
+        print(f"  nothing to do")
+        return cache
 
-        new_tracks: list[tuple[str, str | None, list[list[float]]]] = []
-        for cat, fn, _, _ in to_parse:
-            entry = cache[f"{cat}/{fn}"]
-            meta = entry.get("meta", {})
-            dt = meta.get("datetime")
-            date = dt[:10] if dt else None
-            coords = [c for seg in entry["tracks"] for c in seg]
-            if coords:
-                new_tracks.append((fn, date, coords))
+    # --- Phase 3: parse new/changed tracks ---
+    if to_parse:
+        t2 = time.perf_counter()
+        print(f"Parsing {len(to_parse)} new/changed track(s) ...")
+        new_metas = extract_gpx_metadata_batch([p for _, _, p, _ in to_parse])
+        for (cat, fn, path, md5), meta in zip(to_parse, new_metas):
+            key = f"{cat}/{fn}"
+            tracks_coords = parse_gpx_coords(path, fn)
+            mtime: float | None = None
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                pass
+            cache[key] = {"md5": md5, "mtime": mtime, "meta": meta, "tracks": tracks_coords}
+            print(f"  cached {key}")
+        print(f"  parsed in {time.perf_counter() - t2:.1f}s")
+
+    # --- Phase 4: bagging ---
+    if peaks_gpx_files and peaks_index_path and peaks_index is not None:
+        if full_rebag:
+            print(f"Re-running bagging detection for all {len(cache)} cached tracks ...")
+            peaks_index["bagged"] = []
+            new_tracks: list[tuple[str, str | None, list[list[float]]]] = []
+            for key, entry in sorted(cache.items()):
+                fn = key.split("/", 1)[1]
+                meta = entry.get("meta", {})
+                dt = meta.get("datetime")
+                date = dt[:10] if dt else None
+                coords = [c for seg in entry["tracks"] for c in seg]
+                if coords:
+                    new_tracks.append((fn, date, coords))
+        else:
+            reprocessed_filenames = {fn for _, fn, _, _ in to_parse}
+            peaks_index["bagged"] = [
+                e for e in peaks_index.get("bagged", [])
+                if e.get("track") not in reprocessed_filenames
+            ]
+            new_tracks = []
+            for cat, fn, _, _ in to_parse:
+                entry = cache[f"{cat}/{fn}"]
+                meta = entry.get("meta", {})
+                dt = meta.get("datetime")
+                date = dt[:10] if dt else None
+                coords = [c for seg in entry["tracks"] for c in seg]
+                if coords:
+                    new_tracks.append((fn, date, coords))
 
         if new_tracks:
-            print(f"Checking {len(new_tracks)} new track(s) against all peaks ...")
+            t3 = time.perf_counter()
+            print(f"Checking {len(new_tracks)} track(s) against all peaks ...")
             new_bagged = detect_baggings_for_new_tracks(new_tracks, all_peaks, bag_distance_m)
             if new_bagged:
                 total = sum(sum(len(p["names"]) for p in e["peaks"]) for e in new_bagged)
                 print(f"  {total} peak(s) bagged across {len(new_bagged)} track(s)")
                 peaks_index.setdefault("bagged", []).extend(new_bagged)
+            print(f"  bagging detection in {time.perf_counter() - t3:.1f}s")
 
         save_peaks_index(peaks_index_path, peaks_index)
 

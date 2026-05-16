@@ -25,6 +25,16 @@ function formatDatetime(iso: string): string {
     return `${DAYS[d.getDay()]} ${day}-${MONTHS[d.getMonth()]}-${d.getFullYear()} ${hh}:${mm}`;
 }
 
+function formatCoord(lat: number, lng: number): string {
+    return `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lng).toFixed(4)}°${lng >= 0 ? 'E' : 'W'}`;
+}
+
+function formatDate(date: string): string {
+    const d = new Date(date + 'T12:00:00');
+    if (isNaN(d.getTime())) return date;
+    return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`;
+}
+
 export default function App() {
     const { token, signIn, signOut, error: authError } = useGoogleAuth();
     const {
@@ -39,14 +49,8 @@ export default function App() {
         tracksPmtilesFileId,
         peaksPmtilesFileId,
         unindexedFiles,
-        baggedEntries,
-        revertedEntries,
-        committedBaggedKeys,
+        baggedTracks,
         baggedSet,
-        addBaggedEntry,
-        removeBaggedEntry,
-        revertCommittedEntry,
-        unRevertEntry,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
 
@@ -62,9 +66,13 @@ export default function App() {
     const [mapError, setMapError] = useState<string | null>(null);
     const [bearing, setBearing] = useState(0);
     const [northTrigger, setNorthTrigger] = useState(0);
-    const [hoverPeak, setHoverPeak] = useState<{ name: string; elevation: number; category: string } | null>(null);
+    const [hoverPeak, setHoverPeak] = useState<{ name: string; elevation: number; category: string; lat: number; lng: number } | null>(null);
     const lastGoodSourceIdRef = useRef<string | null>(null);
-    const [popup, setPopup] = useState<{ title: string; body: string; peakMeta?: { name: string; category: string; lat: number; lng: number; ele: number; doneInPmtiles: boolean; baggedOn: string | null; trackFileId: string | null } } | null>(null);
+    const [popup, setPopup] = useState<{
+        title: string;
+        body: string;
+        peakMeta?: { name: string; category: string; lat: number; lng: number; ele: number };
+    } | null>(null);
     const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
     const [clickedTrack, setClickedTrack] = useState<TrackPopupData | null>(null);
 
@@ -77,7 +85,6 @@ export default function App() {
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
     const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
-    const [confirmDone, setConfirmDone] = useState<{ name: string; category: string; lat: number; lng: number; ele: number } | null>(null);
     const peakDefaultsApplied = useRef(false);
 
     const toggleCategory = useCallback(
@@ -93,7 +100,6 @@ export default function App() {
         [],
     );
 
-    // Apply default peak visibility once when categories first load from Drive
     useEffect(() => {
         if (peakDefaultsApplied.current || (peakCategories.length === 0 && peakSets.length === 0)) return;
         peakDefaultsApplied.current = true;
@@ -106,7 +112,6 @@ export default function App() {
         [trackIndex],
     );
 
-    // Keep a ref so DriveSource closures always use the current token without re-registering
     const tokenRef = useRef(token);
     tokenRef.current = token;
 
@@ -122,11 +127,8 @@ export default function App() {
         }
     }, [allSources, tracksPmtilesFileId, peaksPmtilesFileId]);
 
-    // Load raw GPX only for files not yet included in the PMTiles build
     const loadedTracks = useUnindexedTracks(token, unindexedFiles);
 
-    // peakSets holds unindexed GPX peaks (always rendered, even when PMTiles is active)
-    // Colors for unindexed start after the indexed categories so palettes don't clash
     const loadedPeaks = peakSets.map((ps, i) => {
         const d = peakDisplayConfig[ps.category] ?? {};
         return {
@@ -139,7 +141,6 @@ export default function App() {
         };
     });
 
-    // Combine PMTiles-indexed categories and unindexed GPX categories for display
     const enrichedPeakCategories = useMemo(
         () => [
             ...peakCategories.map((pc, i) => {
@@ -176,18 +177,12 @@ export default function App() {
 
     const baggedCountByCategory = useMemo(() => {
         const counts: Record<string, number> = {};
-        const revertedSet = new Set(revertedEntries.map(e => `${e.category}:${e.name}`));
-        for (const key of committedBaggedKeys) {
-            if (!revertedSet.has(key)) {
-                const category = key.split(':')[0];
-                counts[category] = (counts[category] ?? 0) + 1;
-            }
-        }
-        for (const e of baggedEntries) {
-            counts[e.category] = (counts[e.category] ?? 0) + 1;
+        for (const key of baggedSet) {
+            const category = key.split(':')[0];
+            counts[category] = (counts[category] ?? 0) + 1;
         }
         return counts;
-    }, [baggedEntries, committedBaggedKeys, revertedEntries]);
+    }, [baggedSet]);
 
     const handleTrackClick = useCallback((data: TrackPopupData) => {
         setClickedTrack(data);
@@ -198,12 +193,12 @@ export default function App() {
         setHoverTrack(data);
     }, []);
 
-    const handlePeakClick = useCallback((name: string, elevation: number, category: string, lat: number, lng: number, doneInPmtiles: boolean, baggedOn: string | null, trackFileId: string | null) => {
-        setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m`, peakMeta: { name, category, lat, lng, ele: elevation, doneInPmtiles, baggedOn, trackFileId } });
+    const handlePeakClick = useCallback((name: string, elevation: number, category: string, lat: number, lng: number) => {
+        setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m  ·  ${formatCoord(lat, lng)}`, peakMeta: { name, category, lat, lng, ele: elevation } });
     }, []);
 
-    const handlePeakHover = useCallback((name: string, elevation: number, category: string) => {
-        setHoverPeak({ name, elevation, category });
+    const handlePeakHover = useCallback((name: string, elevation: number, category: string, lat: number, lng: number) => {
+        setHoverPeak({ name, elevation, category, lat, lng });
     }, []);
 
     const handlePeakHoverEnd = useCallback(() => setHoverPeak(null), []);
@@ -250,9 +245,7 @@ export default function App() {
                     hiddenCategories={hiddenCategories}
                     hiddenTrackTypes={hiddenTrackTypes}
                     hiddenPeakCategories={hiddenPeakCategories}
-                    baggedEntries={baggedEntries}
-                    revertedEntries={revertedEntries}
-                    committedBaggedKeys={committedBaggedKeys}
+                    baggedSet={baggedSet}
                     flyToBbox={flyToBbox}
                 />
             )}
@@ -325,37 +318,17 @@ export default function App() {
                         {popup.peakMeta && (() => {
                             const meta = popup.peakMeta!;
                             const key = `${meta.category}:${meta.name}`;
-                            const isReverted = revertedEntries.some(e => e.category === meta.category && e.name === meta.name);
-                            const isCommitted = meta.doneInPmtiles || committedBaggedKeys.has(key);
-                            const isInBaggedSet = baggedSet.has(key);
+                            if (!baggedSet.has(key)) return null;
+                            const dates = baggedTracks
+                                .filter(bt => bt.peaks.some(bp => bp.category === meta.category && bp.names.includes(meta.name)))
+                                .map(bt => bt.date)
+                                .filter((d): d is string => d !== null)
+                                .sort()
+                                .map(formatDate);
                             return (
-                                <>
-                                    {meta.baggedOn && (
-                                        <div style={styles.popupBaggedDate}>Bagged: {formatDatetime(meta.baggedOn)}</div>
-                                    )}
-                                    <div style={styles.popupActions}>
-                                        {isReverted ? (
-                                            <button style={styles.markDoneBtn} onClick={() => { unRevertEntry(meta.category, meta.name); setPopup(null); }}>
-                                                Re-bag
-                                            </button>
-                                        ) : isCommitted ? (
-                                            <button style={styles.unmarkBtn} onClick={() => {
-                                                revertCommittedEntry({ category: meta.category, name: meta.name, lat: meta.lat, lng: meta.lng, ele: meta.ele, baggedOn: meta.baggedOn ?? new Date().toISOString(), trackFileId: meta.trackFileId ?? null });
-                                                setPopup(null);
-                                            }}>
-                                                Revert bagging
-                                            </button>
-                                        ) : isInBaggedSet ? (
-                                            <button style={styles.unmarkBtn} onClick={() => { removeBaggedEntry(meta.category, meta.name); setPopup(null); }}>
-                                                Unmark
-                                            </button>
-                                        ) : (
-                                            <button style={styles.markDoneBtn} onClick={() => { setConfirmDone({ name: meta.name, category: meta.category, lat: meta.lat, lng: meta.lng, ele: meta.ele }); setPopup(null); }}>
-                                                Mark as done
-                                            </button>
-                                        )}
-                                    </div>
-                                </>
+                                <div style={styles.popupBaggedDate}>
+                                    ✔ Bagged{dates.length > 0 ? `: ${dates.join(', ')}` : ''}
+                                </div>
                             );
                         })()}
                         <button style={styles.popupClose} onClick={() => setPopup(null)}>
@@ -365,44 +338,28 @@ export default function App() {
                 </div>
             )}
 
-            {confirmDone && (
-                <div style={styles.popupOverlay} onClick={() => setConfirmDone(null)}>
-                    <div style={styles.popup} onClick={e => e.stopPropagation()}>
-                        <div style={styles.popupTitle}>Mark as done?</div>
-                        <div style={styles.popupBody}>{confirmDone.name}</div>
-                        <div style={styles.popupActions}>
-                            <button
-                                style={styles.markDoneBtn}
-                                onClick={() => {
-                                    addBaggedEntry({
-                                        category: confirmDone.category,
-                                        name: confirmDone.name,
-                                        lat: confirmDone.lat,
-                                        lng: confirmDone.lng,
-                                        ele: confirmDone.ele,
-                                        baggedOn: new Date().toISOString(),
-                                        trackFileId: null,
-                                    });
-                                    setConfirmDone(null);
-                                }}
-                            >
-                                Yes
-                            </button>
-                            <button style={styles.cancelBtn} onClick={() => setConfirmDone(null)}>
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {hoverPeak && !hoverTrack && !clickedTrack && (
                 <div style={styles.hoverPopupContainer}>
                     <div style={{ ...styles.popup, pointerEvents: 'none' }}>
                         <div style={styles.popupTitle}>{hoverPeak.name}</div>
                         <div style={styles.popupBody}>
-                            {hoverPeak.category} · {Math.round(hoverPeak.elevation).toLocaleString()} m
+                            {hoverPeak.category} · {Math.round(hoverPeak.elevation).toLocaleString()} m · {formatCoord(hoverPeak.lat, hoverPeak.lng)}
                         </div>
+                        {(() => {
+                            const key = `${hoverPeak.category}:${hoverPeak.name}`;
+                            if (!baggedSet.has(key)) return null;
+                            const dates = baggedTracks
+                                .filter(bt => bt.peaks.some(bp => bp.category === hoverPeak.category && bp.names.includes(hoverPeak.name)))
+                                .map(bt => bt.date)
+                                .filter((d): d is string => d !== null)
+                                .sort()
+                                .map(formatDate);
+                            return (
+                                <div style={styles.popupBaggedDate}>
+                                    ✔ Bagged{dates.length > 0 ? `: ${dates.join(', ')}` : ''}
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
             )}
@@ -411,6 +368,8 @@ export default function App() {
                 const trackPopup = clickedTrack ?? hoverTrack;
                 const pinned = clickedTrack !== null;
                 if (!trackPopup) return null;
+                const bagged = baggedTracks.find(bt => bt.track === trackPopup.filename);
+                const baggedNames = bagged ? bagged.peaks.flatMap(bp => bp.names) : [];
                 return (
                     <div
                         style={pinned ? styles.popupOverlay : styles.hoverPopupContainer}
@@ -424,11 +383,9 @@ export default function App() {
                                 {trackPopup.datetime && <div>{formatDatetime(trackPopup.datetime)}</div>}
                                 {trackPopup.lengthKm !== null && <div>{trackPopup.lengthKm.toFixed(1)} km</div>}
                                 {trackPopup.linkText && <div>{trackPopup.linkText}</div>}
-                                {trackPopup.fileId && (() => {
-                                    const peaks = baggedEntries.filter(e => e.trackFileId === trackPopup.fileId);
-                                    if (peaks.length === 0) return null;
-                                    return <div style={{ marginTop: 4 }}>Bagged: {peaks.map(e => e.name).join(', ')}</div>;
-                                })()}
+                                {baggedNames.length > 0 && (
+                                    <div style={{ marginTop: 4 }}>✔ {baggedNames.join(', ')}</div>
+                                )}
                             </div>
                             {pinned && (
                                 <button style={styles.popupClose} onClick={() => setClickedTrack(null)}>
@@ -538,38 +495,5 @@ const styles: Record<string, React.CSSProperties> = {
         fontSize: 16,
         color: '#888',
     },
-    popupBaggedDate: { fontSize: 12, color: '#4caf50', marginTop: 4 },
-    popupActions: { display: 'flex', gap: 8, marginTop: 12 },
-    markDoneBtn: {
-        flex: 1,
-        padding: '8px 12px',
-        borderRadius: 8,
-        background: '#4caf50',
-        color: '#fff',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 14,
-        fontWeight: 500,
-    },
-    unmarkBtn: {
-        flex: 1,
-        padding: '8px 12px',
-        borderRadius: 8,
-        background: '#e0e0e0',
-        color: '#333',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 14,
-        fontWeight: 500,
-    },
-    cancelBtn: {
-        flex: 1,
-        padding: '8px 12px',
-        borderRadius: 8,
-        background: '#f5f5f5',
-        color: '#555',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 14,
-    },
+    popupBaggedDate: { fontSize: 13, color: '#2e7d32', marginTop: 6 },
 };

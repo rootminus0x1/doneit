@@ -31,7 +31,7 @@ DOIT_CONFIG = {
 # ---------------------------------------------------------------------------
 _FOLDER = os.environ.get("DONEIT_FOLDER", "DoneIt")
 _BAG_DISTANCE = float(os.environ.get("DONEIT_BAG_DISTANCE", "500"))
-_COUNTRY = os.environ.get("DONEIT_COUNTRY", "") == "1"
+_BAG_CONFIG_PATH = Path(__file__).parent / ".bag-config.json"
 
 # ---------------------------------------------------------------------------
 # Drive path discovery (runs every time doit loads this file)
@@ -77,12 +77,7 @@ if "tracks-index.json" in _track_names:
 _tracks_pmtiles_dest: Path = _track_names.get("tracks.pmtiles", _tracks_folder / "tracks.pmtiles")
 _tracks_index_dest: Path = _track_names.get("tracks-index.json", _tracks_folder / "tracks-index.json")
 
-# Country data — loaded only when requested
-_gdf, _sindex = (pipeline.load_country_index() if _COUNTRY and pipeline.COUNTRIES_PATH.exists()
-                 else (None, None))
-if _COUNTRY and _gdf is None:
-    pipeline.fetch_countries()
-    _gdf, _sindex = pipeline.load_country_index()
+_gdf, _sindex = None, None
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +102,11 @@ def task_parse_and_bag_tracks() -> dict[str, Any]:
     if _peaks_index_path is not None:
         targets.append(str(_peaks_index_path))
 
+    # .bag-config.json records the last-used bag_distance; changes trigger re-bag via doit dep
+    bag_config_dep = [str(_BAG_CONFIG_PATH)] if _BAG_CONFIG_PATH.exists() else []
+
     return {
-        "file_dep": gpx_paths + peak_gpx_paths,
+        "file_dep": gpx_paths + peak_gpx_paths + bag_config_dep,
         "targets": targets,
         "actions": [action],
     }

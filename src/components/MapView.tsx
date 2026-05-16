@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import '../lib/drivepmtiles'; // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig';
 import { buildRasterStyle } from '../lib/tileConfig';
-import type { TrackCategory, PeakShape, BaggedEntry } from '../hooks/useDriveData';
+import type { TrackCategory, PeakShape } from '../hooks/useDriveData';
 import type { LoadedTrack } from '../hooks/useViewportTracks';
 import type { FeatureCollection, Point } from 'geojson';
 import type { TrackBbox } from '../lib/gpxParser';
@@ -95,11 +95,9 @@ interface Props {
     onMove: (center: [number, number], zoom: number) => void;
     onTrackClick: (data: TrackPopupData) => void;
     onTrackHover: (data: TrackPopupData | null) => void;
-    onPeakClick: (name: string, elevation: number, category: string, lat: number, lng: number, doneInPmtiles: boolean, baggedOn: string | null, trackFileId: string | null) => void;
-    onPeakHover?: (name: string, elevation: number, category: string) => void;
-    baggedEntries: BaggedEntry[];
-    revertedEntries: BaggedEntry[];
-    committedBaggedKeys: Set<string>;
+    onPeakClick: (name: string, elevation: number, category: string, lat: number, lng: number) => void;
+    onPeakHover?: (name: string, elevation: number, category: string, lat: number, lng: number) => void;
+    baggedSet: Set<string>;
     onPeakHoverEnd?: () => void;
     onBearingChange?: (bearing: number) => void;
     northTrigger?: number;
@@ -115,7 +113,7 @@ interface Props {
 // Copies track/peak sources and layers from the previous style into the next one
 // so they remain visible throughout a style switch.
 const PMTILES_SOURCE = 'tracks-pmtiles';
-const PMTILES_LAYER = 'tracks-pmtiles-line';
+const trackPmtilesLayerId = (cat: string) => `tracks-pmtiles-${cat}`;
 const PEAKS_PMTILES_SOURCE = 'peaks-pmtiles';
 const peakPmtilesLayerId = (name: string) => `peaks-pmtiles-symbol-${name}`;
 
@@ -138,21 +136,6 @@ const DONE_TICK_PAINT = {
     'text-halo-width': 1,
 };
 
-const REVERTED_TICK_LAYOUT = {
-    'text-field': '✗',
-    'text-size': 25,
-    'text-anchor': 'center' as const,
-    'text-offset': [0.15, -0.2] as [number, number],
-    'text-allow-overlap': true,
-    'text-ignore-placement': true,
-};
-
-const REVERTED_TICK_PAINT = {
-    'text-color': '#cc0000',
-    'text-halo-color': '#ffffff',
-    'text-halo-width': 1,
-};
-
 // Scale peak icons with zoom: small at overview, full-size when zoomed in
 const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15, 1.5] as unknown as maplibregl.ExpressionSpecification;
 
@@ -168,7 +151,7 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
         l =>
             l.id.startsWith('track-line-') ||
             l.id.startsWith('peaks-') ||
-            l.id === PMTILES_LAYER,
+            l.id.startsWith('tracks-pmtiles-'),
     );
     return {
         ...next,
@@ -215,9 +198,7 @@ export function MapView({
     hiddenCategories,
     hiddenTrackTypes,
     hiddenPeakCategories,
-    baggedEntries,
-    revertedEntries,
-    committedBaggedKeys,
+    baggedSet,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<maplibregl.Map | null>(null);
@@ -469,18 +450,22 @@ export function MapView({
                         'icon-allow-overlap': true,
                     },
                 });
-                map.on('click', lid, e => {
-                    const f = e.features?.[0];
-                    if (f) {
-                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0], false, null, null);
-                    }
-                });
-                if (!IS_TOUCH) {
+                if (IS_TOUCH) {
+                    map.on('click', lid, e => {
+                        const f = e.features?.[0];
+                        if (f) {
+                            const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                            onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0]);
+                        }
+                    });
+                } else {
                     map.on('mouseenter', lid, e => {
                         map.getCanvas().style.cursor = 'pointer';
                         const f = e.features?.[0];
-                        if (f) onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category);
+                        if (f) {
+                            const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                            onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0]);
+                        }
                     });
                     map.on('mouseleave', lid, () => {
                         map.getCanvas().style.cursor = '';
@@ -521,18 +506,22 @@ export function MapView({
                     'icon-allow-overlap': true,
                 },
             });
-            map.on('click', lid, e => {
-                const f = e.features?.[0];
-                if (f) {
-                    const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                    onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0], f.properties?.done === true, f.properties?.baggedOn ?? null, f.properties?.trackFileId ?? null);
-                }
-            });
-            if (!IS_TOUCH) {
+            if (IS_TOUCH) {
+                map.on('click', lid, e => {
+                    const f = e.features?.[0];
+                    if (f) {
+                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0]);
+                    }
+                });
+            } else {
                 map.on('mouseenter', lid, e => {
                     map.getCanvas().style.cursor = 'pointer';
-                    const props = e.features?.[0]?.properties;
-                    if (props) onPeakHoverRef.current?.(props.name ?? '', props.ele ?? 0, pc.name);
+                    const f = e.features?.[0];
+                    if (f) {
+                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                        onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0]);
+                    }
                 });
                 map.on('mouseleave', lid, () => {
                     map.getCanvas().style.cursor = '';
@@ -549,7 +538,7 @@ export function MapView({
                     'source-layer': 'peaks',
                     filter: ['all',
                         ['==', ['get', 'category'], pc.name],
-                        ['==', ['get', 'done'], true],
+                        ['in', ['get', 'name'], ['literal', []]],
                     ] as unknown as maplibregl.FilterSpecification,
                     layout: DONE_TICK_LAYOUT,
                     paint: DONE_TICK_PAINT,
@@ -573,146 +562,89 @@ export function MapView({
         }
     }, [peakCategories, hiddenPeakCategories, mapVersion]);
 
-    // ✔ overlay — pending bagged entries not yet committed to PMTiles (always visible)
+    // Update done-tick filter on PMTiles peak layers whenever baggedSet changes.
+    // Uses ['in', name, ['literal', names]] so coordinates come from PMTiles, not client state.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || mapVersion === 0) return;
-
-        for (const catName of peakCategories.map(pc => pc.name)) {
-            const sid = `peaks-done-${catName}`;
-            const lid = `peaks-done-symbol-${catName}`;
-            const pending = baggedEntries.filter(
-                e => e.category === catName && !committedBaggedKeys.has(`${e.category}:${e.name}`),
-            );
-            const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-                type: 'FeatureCollection',
-                features: pending.map(e => ({
-                    type: 'Feature' as const,
-                    geometry: { type: 'Point' as const, coordinates: [e.lng, e.lat] },
-                    properties: { name: e.name, ele: e.ele, category: e.category, baggedOn: e.baggedOn, trackFileId: e.trackFileId },
-                })),
-            };
-            const existing = map.getSource(sid);
-            if (existing) {
-                (existing as maplibregl.GeoJSONSource).setData(geojson);
-            } else {
-                map.addSource(sid, { type: 'geojson', data: geojson });
-                map.addLayer({ id: lid, type: 'symbol', source: sid, layout: DONE_TICK_LAYOUT, paint: DONE_TICK_PAINT });
-                map.on('click', lid, e => {
-                    const f = e.features?.[0];
-                    if (f) {
-                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, f.properties?.category ?? catName, coords[1], coords[0], false, f.properties?.baggedOn ?? null, f.properties?.trackFileId ?? null);
-                    }
-                });
-            }
+        if (!map || mapVersion === 0 || !peaksPmtilesFileId) return;
+        for (const pc of peakCategories) {
+            const doneLid = `${peakPmtilesLayerId(pc.name)}-done-tick`;
+            if (!map.getLayer(doneLid)) continue;
+            const doneNames = [...baggedSet]
+                .filter(k => k.startsWith(`${pc.name}:`))
+                .map(k => k.slice(pc.name.length + 1));
+            map.setFilter(doneLid, ['all',
+                ['==', ['get', 'category'], pc.name],
+                ['in', ['get', 'name'], ['literal', doneNames]],
+            ] as unknown as maplibregl.FilterSpecification);
         }
-    }, [baggedEntries, committedBaggedKeys, peakCategories, mapVersion]);
-
-    // ✗ overlay — reverted entries that are still committed as done in PMTiles (always visible)
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || mapVersion === 0) return;
-
-        for (const catName of peakCategories.map(pc => pc.name)) {
-            const sid = `peaks-reverted-${catName}`;
-            const lid = `peaks-reverted-symbol-${catName}`;
-            const stale = revertedEntries.filter(
-                e => e.category === catName && committedBaggedKeys.has(`${e.category}:${e.name}`),
-            );
-            const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
-                type: 'FeatureCollection',
-                features: stale.map(e => ({
-                    type: 'Feature' as const,
-                    geometry: { type: 'Point' as const, coordinates: [e.lng, e.lat] },
-                    properties: { name: e.name, ele: e.ele, category: e.category, baggedOn: e.baggedOn, trackFileId: e.trackFileId },
-                })),
-            };
-            const existing = map.getSource(sid);
-            if (existing) {
-                (existing as maplibregl.GeoJSONSource).setData(geojson);
-            } else {
-                map.addSource(sid, { type: 'geojson', data: geojson });
-                map.addLayer({ id: lid, type: 'symbol', source: sid, layout: REVERTED_TICK_LAYOUT, paint: REVERTED_TICK_PAINT });
-                map.on('click', lid, e => {
-                    const f = e.features?.[0];
-                    if (f) {
-                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, f.properties?.category ?? catName, coords[1], coords[0], true, f.properties?.baggedOn ?? null, f.properties?.trackFileId ?? null);
-                    }
-                });
-            }
-        }
-    }, [revertedEntries, committedBaggedKeys, peakCategories, mapVersion]);
+    }, [baggedSet, peakCategories, peaksPmtilesFileId, mapVersion]);
 
 
-    // Sync PMTiles tracks overlay — one vector source covering all built tracks
+    // Sync PMTiles tracks overlay — one layer per category so dashArray can vary.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || mapVersion === 0 || !tracksPmtilesFileId) return;
 
-        if (map.getSource(PMTILES_SOURCE)) return; // already added; preserved across style switches
+        if (!map.getSource(PMTILES_SOURCE)) {
+            map.addSource(PMTILES_SOURCE, {
+                type: 'vector',
+                url: `pmtiles://${tracksPmtilesFileId}`,
+            });
+        }
 
-        const colorExpr = [
-            'match',
-            ['get', 'category'],
-            ...categories.flatMap(c => [c.name, c.color]),
-            '#888888',
-        ] as unknown as maplibregl.ExpressionSpecification;
-        const widthExpr = [
-            'match',
-            ['get', 'category'],
-            ...categories.flatMap(c => [c.name, c.width]),
-            2,
-        ] as unknown as maplibregl.ExpressionSpecification;
-
-        map.addSource(PMTILES_SOURCE, {
-            type: 'vector',
-            url: `pmtiles://${tracksPmtilesFileId}`,
-        });
-        map.addLayer({
-            id: PMTILES_LAYER,
-            type: 'line',
-            source: PMTILES_SOURCE,
-            'source-layer': 'tracks',
-            paint: {
-                'line-color': colorExpr,
-                'line-width': widthExpr,
-                'line-opacity': 0.8,
-            },
-        });
-        map.on('click', PMTILES_LAYER, e => {
-            const props = e.features?.[0]?.properties;
-            if (props) onTrackClickRef.current(buildTrackPopup(props));
-        });
-        if (!IS_TOUCH) {
-            map.on('mouseenter', PMTILES_LAYER, e => {
-                map.getCanvas().style.cursor = 'pointer';
+        for (const cat of categories) {
+            const lid = trackPmtilesLayerId(cat.name);
+            if (map.getLayer(lid)) continue;
+            map.addLayer({
+                id: lid,
+                type: 'line',
+                source: PMTILES_SOURCE,
+                'source-layer': 'tracks',
+                filter: ['==', ['get', 'category'], cat.name] as unknown as maplibregl.FilterSpecification,
+                paint: {
+                    'line-color': cat.color,
+                    'line-width': cat.width,
+                    'line-opacity': cat.opacity,
+                    ...(cat.dashArray ? { 'line-dasharray': cat.dashArray } : {}),
+                },
+            });
+            map.on('click', lid, e => {
                 const props = e.features?.[0]?.properties;
-                if (props) onTrackHoverRef.current(buildTrackPopup(props));
+                if (props) onTrackClickRef.current(buildTrackPopup(props));
             });
-            map.on('mouseleave', PMTILES_LAYER, () => {
-                map.getCanvas().style.cursor = '';
-                onTrackHoverRef.current(null);
-            });
+            if (!IS_TOUCH) {
+                map.on('mouseenter', lid, e => {
+                    map.getCanvas().style.cursor = 'pointer';
+                    const props = e.features?.[0]?.properties;
+                    if (props) onTrackHoverRef.current(buildTrackPopup(props));
+                });
+                map.on('mouseleave', lid, () => {
+                    map.getCanvas().style.cursor = '';
+                    onTrackHoverRef.current(null);
+                });
+            }
         }
     }, [tracksPmtilesFileId, categories, mapVersion]);
 
-    // Apply category/track-type filter to PMTiles tracks layer
+    // Toggle PMTiles track layer visibility per category; apply track-type filter.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !map.getLayer(PMTILES_LAYER)) return;
-
-        const conditions: unknown[] = [];
-        if (hiddenCategories.length > 0)
-            conditions.push(['!', ['in', ['get', 'category'], ['literal', hiddenCategories]]]);
-        if (hiddenTrackTypes.length > 0)
-            conditions.push(['!', ['in', ['get', 'track_type'], ['literal', hiddenTrackTypes]]]);
-        map.setFilter(
-            PMTILES_LAYER,
-            conditions.length === 0 ? null : (['all', ...conditions] as maplibregl.FilterSpecification),
-        );
-    }, [hiddenCategories, hiddenTrackTypes, mapVersion]);
+        if (!map) return;
+        const typeFilter = hiddenTrackTypes.length > 0
+            ? ['!', ['in', ['get', 'track_type'], ['literal', hiddenTrackTypes]]]
+            : null;
+        for (const cat of categories) {
+            const lid = trackPmtilesLayerId(cat.name);
+            if (!map.getLayer(lid)) continue;
+            map.setLayoutProperty(lid, 'visibility', hiddenCategories.includes(cat.name) ? 'none' : 'visible');
+            const baseFilter = ['==', ['get', 'category'], cat.name];
+            map.setFilter(
+                lid,
+                (typeFilter ? ['all', baseFilter, typeFilter] : baseFilter) as maplibregl.FilterSpecification,
+            );
+        }
+    }, [hiddenCategories, hiddenTrackTypes, categories, mapVersion]);
 
     // Fly to bbox
     useEffect(() => {

@@ -19,7 +19,6 @@ export function useGoogleAuth(): AuthState {
     const [token, setToken] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Ref so the refresh timer callback always calls the latest silentSignIn without re-registering it
     const silentSignInRef = useRef<(() => void) | null>(null);
 
     const scheduleRefresh = useCallback((expiresIn: number) => {

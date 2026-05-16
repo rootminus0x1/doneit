@@ -8,6 +8,7 @@ __pycache__/
 
 # doit task state
 .doit.db*
+.bag-config.json
 
 # Logs
 logs
