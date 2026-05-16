@@ -2,11 +2,13 @@
 doit build pipeline for DoneIt GPX → PMTiles.
 
 Tasks:
+  fetch_row            — download ROW GeoJSON from rowmaps.com → row.geojson (reruns after 30 days)
   parse_and_bag_tracks — parse new/changed GPX files → gpx-cache.json + peaks-index.json
   build_tracks         — gpx-cache.json → tracks.pmtiles + tracks-index.json
   build_peaks_pmtiles  — peaks/*.gpx + peaks-index.json → peaks.pmtiles
 
 Run:  uv run doit                         (build_tracks + build_peaks_pmtiles)
+      uv run doit fetch_row
       uv run doit parse_and_bag_tracks
       uv run doit build_tracks
       uv run doit build_peaks_pmtiles
@@ -15,10 +17,12 @@ Run:  uv run doit                         (build_tracks + build_peaks_pmtiles)
 import json
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pipeline
+from doit.tools import timeout
 
 DOIT_CONFIG = {
     "verbosity": 2,
@@ -83,6 +87,18 @@ _gdf, _sindex = None, None
 # ---------------------------------------------------------------------------
 # Tasks
 # ---------------------------------------------------------------------------
+
+def task_fetch_row() -> dict[str, Any]:
+    """Download Rights of Way GeoJSON from rowmaps.com; skips if run within the last 30 days."""
+    def action():
+        pipeline.fetch_row_geojson(pipeline.ROW_GEOJSON_PATH)
+
+    return {
+        "actions": [action],
+        "targets": [str(pipeline.ROW_GEOJSON_PATH)],
+        "uptodate": [timeout(timedelta(days=30))],
+    }
+
 
 def task_parse_and_bag_tracks() -> dict[str, Any]:
     """Parse new/changed GPX tracks; detect baggings for newly parsed ones."""

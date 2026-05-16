@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "data": "uv run --directory scripts/build-pmtiles python build.py",
-    "fetch-row": "python scripts/fetch-row/fetch_row.py data/row/row_combined.geojson",
+    "fetch-row": "uv run --directory scripts/build-pmtiles python build.py fetch_row",
     "fmt": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {

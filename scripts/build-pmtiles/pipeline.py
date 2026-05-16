@@ -22,6 +22,154 @@ GPX_CACHE_PATH = Path(__file__).parent / "gpx-cache.json"
 PEAKS_INDEX_NAME = "peaks-index.json"
 COUNTRIES_URL = "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
 COUNTRIES_PATH = Path(__file__).parent.parent.parent / "public" / "ne_110m_countries.geojson"
+ROW_GEOJSON_PATH = Path(__file__).parent / "row.geojson"
+_ROW_BASE_URL = "https://www.rowmaps.com/jsons"
+_ROW_TYPES = {1: "footpath", 2: "bridleway", 3: "restricted_byway", 4: "byway"}
+_ROW_AUTHORITIES = {
+    "B1": "Brecon Beacons National Park",
+    "B2": "Bournemouth, Christchurch and Poole",
+    "BA": "Bradford",
+    "BB": "Blackburn with Darwen",
+    "BC": "Bracknell Forest",
+    "BD": "Barking and Dagenham",
+    "BE": "Bridgend",
+    "BF": "Bedford",
+    "BG": "Blaenau Gwent",
+    "BH": "City of Brighton and Hove",
+    "BI": "Birmingham",
+    "BL": "Barnsley",
+    "BM": "Buckinghamshire",
+    "BO": "Bolton",
+    "BP": "Blackpool",
+    "BR": "Bromley",
+    "BS": "Bath and North East Somerset",
+    "BX": "Bexley",
+    "BY": "Bury",
+    "BZ": "City of Bristol",
+    "CA": "Calderdale",
+    "CB": "Cambridgeshire",
+    "CC": "Cheshire West and Chester",
+    "CD": "Cardiff",
+    "CE": "Ceredigion",
+    "CF": "Caerphilly",
+    "CH": "Cheshire East",
+    "CN": "Cornwall",
+    "CT": "Carmarthenshire",
+    "CU": "Cumbria",
+    "CV": "Coventry",
+    "CW": "Conwy",
+    "DB": "City of Derby",
+    "DE": "Denbighshire",
+    "DL": "Darlington",
+    "DN": "Devon",
+    "DR": "Doncaster",
+    "DT": "Dorset",
+    "DU": "Durham",
+    "DY": "Derbyshire",
+    "DZ": "Dudley",
+    "EG": "Ealing",
+    "ES": "East Sussex",
+    "EX": "Essex",
+    "EY": "East Riding of Yorkshire",
+    "FL": "Flintshire",
+    "GH": "Gateshead",
+    "GR": "Gloucestershire",
+    "GY": "Gwynedd",
+    "HA": "Halton",
+    "HD": "Hertfordshire",
+    "HE": "Herefordshire",
+    "HG": "Haringey",
+    "HI": "Hillingdon",
+    "HP": "Hampshire",
+    "HS": "Hounslow",
+    "IA": "Isle of Anglesey",
+    "IW": "Isle of Wight",
+    "KG": "Kingston upon Thames",
+    "KH": "City of Kingston upon Hull",
+    "KL": "Kirklees",
+    "KT": "Kent",
+    "L1": "Lake District National Park",
+    "LA": "Lancashire",
+    "LC": "City of Leicester",
+    "LD": "Leeds",
+    "LL": "Lincolnshire",
+    "LP": "Liverpool",
+    "LT": "Leicestershire",
+    "MA": "Manchester",
+    "MB": "Middlesbrough",
+    "ME": "Medway",
+    "MK": "Milton Keynes",
+    "MM": "Monmouthshire",
+    "MT": "Merthyr Tydfil",
+    "N2": "North Northamptonshire",
+    "N3": "West Northamptonshire",
+    "NC": "North East Lincolnshire",
+    "ND": "Northumberland",
+    "NE": "Newport",
+    "NG": "City of Nottingham",
+    "NI": "North Lincolnshire",
+    "NK": "Norfolk",
+    "NP": "Neath Port Talbot",
+    "NS": "North Somerset",
+    "NT": "Nottinghamshire",
+    "NW": "Newcastle upon Tyne",
+    "NY": "North Yorkshire",
+    "OH": "Oldham",
+    "ON": "Oxfordshire",
+    "PB": "Pembrokeshire",
+    "PE": "City of Peterborough",
+    "PO": "City of Portsmouth",
+    "PW": "Powys",
+    "PY": "City of Plymouth",
+    "RB": "Redbridge",
+    "RC": "Redcar and Cleveland",
+    "RD": "Rochdale",
+    "RG": "Reading",
+    "RH": "Rhondda Cynon Taff",
+    "RL": "Rutland",
+    "SA": "Sandwell",
+    "SC": "Salford",
+    "SD": "Swindon",
+    "SE": "Sefton",
+    "SF": "Staffordshire",
+    "SG": "South Gloucestershire",
+    "SH": "Shropshire",
+    "SK": "Suffolk",
+    "SM": "Stockton on Tees",
+    "SN": "St Helens",
+    "SO": "City of Southampton",
+    "SP": "Sheffield",
+    "SQ": "Solihull",
+    "SS": "Swansea",
+    "ST": "Somerset",
+    "SU": "Surrey",
+    "SV": "Sunderland",
+    "SY": "South Tyneside",
+    "SZ": "Sutton",
+    "TB": "Torbay",
+    "TF": "Torfaen",
+    "TS": "Tameside",
+    "TU": "Thurrock",
+    "VG": "Vale of Glamorgan",
+    "WA": "Walsall",
+    "WB": "West Berkshire",
+    "WC": "Windsor and Maidenhead",
+    "WE": "Wakefield",
+    "WF": "Waltham Forest",
+    "WG": "Warrington",
+    "WH": "City of Wolverhampton",
+    "WJ": "Wokingham",
+    "WK": "Warwickshire",
+    "WN": "Wigan",
+    "WO": "Worcestershire",
+    "WP": "Telford and Wrekin",
+    "WR": "Wirral",
+    "WS": "West Sussex",
+    "WX": "Wrexham",
+    "YK": "York",
+    "YT": "Slough",
+    "YY": "Stockport",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +774,65 @@ def run_build_tracks(
 # PMTiles features carry only name/category/ele — done status is derived
 # at runtime from peaks-index.json loaded by the app.
 # ---------------------------------------------------------------------------
+
+def fetch_row_geojson(output_path: Path) -> None:
+    """Download Rights of Way GeoJSON from rowmaps.com and write a merged FeatureCollection."""
+    import urllib.error
+    import urllib.request
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _fetch(code: str, name: str, type_num: int) -> list[dict[str, Any]]:
+        url = f"{_ROW_BASE_URL}/{code}/mutated{type_num}.json"
+        row_type = _ROW_TYPES[type_num]
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "doneit-build/1.0"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read())
+                features = data.get("features", [])
+                for f in features:
+                    p = f.setdefault("properties", {})
+                    p["row_type"] = row_type
+                    p["authority_code"] = code
+                    p["authority_name"] = name
+                return features
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return []
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                else:
+                    print(f"  warning: {code} {row_type}: {e}", file=sys.stderr)
+        return []
+
+    tasks = [
+        (code, name, t)
+        for code, name in sorted(_ROW_AUTHORITIES.items())
+        for t in _ROW_TYPES
+    ]
+    total = len(tasks)
+    all_features: list[dict[str, Any]] = []
+    completed = 0
+
+    print(f"Downloading ROW data: {len(_ROW_AUTHORITIES)} authorities × {len(_ROW_TYPES)} types ...")
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = {pool.submit(_fetch, code, name, t): (code, t) for code, name, t in tasks}
+        for future in as_completed(futures):
+            code, t = futures[future]
+            completed += 1
+            features = future.result()
+            all_features.extend(features)
+            if completed % 50 == 0 or completed == total:
+                print(f"  {completed}/{total} done, {len(all_features)} features so far")
+
+    geojson = {"type": "FeatureCollection", "features": all_features}
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(geojson, separators=(",", ":")))
+    print(f"  Wrote {len(all_features)} ROW features to {output_path.name}")
+
 
 def run_build_peaks_pmtiles(
     peaks_gpx_files: dict[str, Path],
