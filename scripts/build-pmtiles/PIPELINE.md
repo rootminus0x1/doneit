@@ -14,42 +14,57 @@ flowchart TD
     PIDX["peaks-index.json\n{categories, bagged[]}"]
     PPMT["peaks.pmtiles"]
 
-    TRK -->|"md5 check — new/changed only"| P1["parse GPX\nupdate cache"]
+    TRK -->|"md5 check — new/changed only"| P1["parse GPX\n+ detect baggings"]
+    PKS --> P1
     P1 --> CACHE
-
-    CACHE --> P2["build tracks index"]
-    P2 --> TIDX
-
-    CACHE -->|"coords + meta"| P3["tippecanoe"]
-    P3 --> TPMT
-
-    CACHE -->|"new tracks only"| P4["detect baggings"]
-    PKS --> P4
-    P4 -->|"append new entries"| PIDX
+    P1 -->|"append new entries\nremove stale"| PIDX
 
     MANUAL --> PIDX
 
-    PKS --> P5["tippecanoe"]
-    PIDX --> P5
-    P5 --> PPMT
+    CACHE --> P2["build tracks index\n+ tippecanoe"]
+    P2 --> TIDX
+    P2 --> TPMT
+
+    PKS --> P3["tippecanoe"]
+    PIDX --> P3
+    P3 --> PPMT
 ```
 
 ## Tasks
 
-| Task | Inputs | Output | Reruns when |
+| Task | Inputs | Outputs | Reruns when |
 |---|---|---|---|
-| `parse_gpx` | `tracks/**/*.gpx` | `gpx-cache.json` | any track file md5 changes |
-| `build_tracks_index` | `gpx-cache.json` | `tracks-index.json` | cache changes |
-| `build_tracks_pmtiles` | `gpx-cache.json` | `tracks.pmtiles` | cache changes |
-| `detect_baggings` | `gpx-cache.json`, `peaks/*.gpx` | `peaks-index.json` | cache or peak files change |
+| `parse_and_bag_tracks` | `tracks/**/*.gpx`, `peaks/*.gpx` | `gpx-cache.json`, `peaks-index.json` | any track or peak file changes |
+| `build_tracks` | `gpx-cache.json` | `tracks.pmtiles`, `tracks-index.json` | cache changes |
 | `build_peaks_pmtiles` | `peaks/*.gpx`, `peaks-index.json` | `peaks.pmtiles` | peak files or index change |
+
+## CLI (`build.py`)
+
+```
+yarn build-pmtiles [OPTIONS] [TASK ...]
+
+--force           Delete gpx-cache.json + .doit.db (full rebuild)
+--retrack PATTERN Remove matching entries from cache + .doit.db (re-parse those tracks)
+--folder NAME     Drive folder name (default: DoneIt)
+--bag-distance M  Peak detection radius in metres (default: 500)
+--country         Annotate tracks with country name
+```
+
+**Re-bag after a peak name change or new peak added:** `yarn build-pmtiles --force`
+
+**Re-process a single track category:** `yarn build-pmtiles --retrack 'hills/*'`
 
 ## Notes
 
-- `gpx-cache.json` and `peaks-index.json` are a matched pair — if you delete the cache to force
-  a full reparse, also clear the `bagged` array in `peaks-index.json` to avoid duplicate entries.
-- Manual edits to `peaks-index.json` trigger `build_peaks_pmtiles` but not `detect_baggings`
-  (correct — detection only runs for new tracks).
-- `peaks-index.json` is read and written by `detect_baggings`. doit sees it only as a target;
-  the existing content is read inside the action rather than declared as a file dependency.
+- `gpx-cache.json` is the single record of "this track has been parsed and bagging-detected".
+  Delete it (or use `--force`) to trigger a full reparse. Unlike a separate bagging log, there
+  is no risk of the cache and detection state getting out of sync.
+- If a track is re-processed (MD5 changed or `--retrack`), any existing bagging entries for
+  that track filename are removed from `peaks-index.json` before re-detection, preventing duplicates.
+- Manually editing `peaks-index.json` triggers `build_peaks_pmtiles` but not `parse_and_bag_tracks`
+  (correct — detection only runs for new/changed tracks).
+- PMTiles peak features carry only `name/category/ele`. Done status is derived at runtime
+  by the app from `peaks-index.json`.
+- Delete both `gpx-cache.json` and `.doit.db` together if you want a clean slate — doit stores
+  file-dep MD5s in `.doit.db` and will consider tasks up-to-date if only one is deleted.
 ```

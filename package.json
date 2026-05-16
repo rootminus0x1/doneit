@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build-pmtiles": "uv run --directory scripts/build-pmtiles python build_pmtiles.py",
+    "data": "uv run --directory scripts/build-pmtiles python build.py",
     "fmt": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {

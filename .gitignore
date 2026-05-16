@@ -3,6 +3,11 @@
 
 # python
 .venv
+__pycache__/
+*.pyc
+
+# doit task state
+.doit.db*
 
 # Logs
 logs
