@@ -21,8 +21,8 @@
 <wpt lat="57.451935" lon="-4.733922"><ele>862.00</ele><name><![CDATA[Beinn a' Bhathaich Ard (Beinn a' Bha' ach Ard)]]></name><cmt><![CDATA[Beinn a' Bhathaich Ard (Beinn a' Bha' ach Ard)]]></cmt><desc><![CDATA[Beinn a' Bhathaich Ard (Beinn a' Bha' ach Ard)]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.408911" lon="-5.09044"><ele>897.00</ele><name><![CDATA[Beinn a' Bhuiridh]]></name><cmt><![CDATA[Beinn a' Bhuiridh]]></cmt><desc><![CDATA[Beinn a' Bhuiridh]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.751165" lon="-5.39209"><ele>856.00</ele><name><![CDATA[Beinn a' Chaisgein Mor]]></name><cmt><![CDATA[Beinn a' Chaisgein Mor]]></cmt><desc><![CDATA[Beinn a' Chaisgein Mor]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.490614" lon="-4.686104"><ele>886.00</ele><name><![CDATA[Beinn a' Chaisteil]]></name><cmt><![CDATA[Beinn a' Chaisteil]]></cmt><desc><![CDATA[Beinn a' Chaisteil]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.78092" lon="-4.742993"><ele>787.00</ele><name><![CDATA[Beinn a' Chaisteil]]></name><cmt><![CDATA[Beinn a' Chaisteil]]></cmt><desc><![CDATA[Beinn a' Chaisteil]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.490614" lon="-4.686104"><ele>886.00</ele><name><![CDATA[Beinn a' Chaisteil - Auch]]></name><cmt><![CDATA[Beinn a' Chaisteil]]></cmt><desc><![CDATA[Beinn a' Chaisteil - Auch]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.78092" lon="-4.742993"><ele>787.00</ele><name><![CDATA[Beinn a' Chaisteil - Strath Vaich]]></name><cmt><![CDATA[Beinn a' Chaisteil]]></cmt><desc><![CDATA[Beinn a' Chaisteil - Strath Vaich]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.745922" lon="-5.259066"><ele>914.00</ele><name><![CDATA[Beinn a' Chlaidheimh]]></name><cmt><![CDATA[Beinn a' Chlaidheimh]]></cmt><desc><![CDATA[Beinn a' Chlaidheimh]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.281081" lon="-4.659947"><ele>768.70</ele><name><![CDATA[Beinn a' Choin]]></name><cmt><![CDATA[Beinn a' Choin]]></cmt><desc><![CDATA[Beinn a' Choin]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.668905" lon="-4.863529"><ele>857.00</ele><name><![CDATA[Beinn a' Chrulaiste]]></name><cmt><![CDATA[Beinn a' Chrulaiste]]></cmt><desc><![CDATA[Beinn a' Chrulaiste]]></desc><sym>filled circle</sym></wpt>
@@ -31,8 +31,8 @@
 <wpt lat="57.622829" lon="-5.509791"><ele>855.00</ele><name><![CDATA[Beinn an Eoin]]></name><cmt><![CDATA[Beinn an Eoin]]></cmt><desc><![CDATA[Beinn an Eoin]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.230085" lon="-4.876243"><ele>901.70</ele><name><![CDATA[Beinn an Lochain]]></name><cmt><![CDATA[Beinn an Lochain]]></cmt><desc><![CDATA[Beinn an Lochain]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="55.902396" lon="-6.004137"><ele>785.00</ele><name><![CDATA[Beinn an Oir]]></name><cmt><![CDATA[Beinn an Oir]]></cmt><desc><![CDATA[Beinn an Oir]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.442348" lon="-5.661686"><ele>896.00</ele><name><![CDATA[Beinn Bhan]]></name><cmt><![CDATA[Beinn Bhan]]></cmt><desc><![CDATA[Beinn Bhan]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.925252" lon="-5.056842"><ele>796.00</ele><name><![CDATA[Beinn Bhan]]></name><cmt><![CDATA[Beinn Bhan]]></cmt><desc><![CDATA[Beinn Bhan]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.442348" lon="-5.661686"><ele>896.00</ele><name><![CDATA[Beinn Bhan - Applecross]]></name><cmt><![CDATA[Beinn Bhan]]></cmt><desc><![CDATA[Beinn Bhan - Applecross]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.925252" lon="-5.056842"><ele>796.00</ele><name><![CDATA[Beinn Bhan - Great Glen]]></name><cmt><![CDATA[Beinn Bhan]]></cmt><desc><![CDATA[Beinn Bhan - Great Glen]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.141833" lon="-4.971465"><ele>779.00</ele><name><![CDATA[Beinn Bheula]]></name><cmt><![CDATA[Beinn Bheula]]></cmt><desc><![CDATA[Beinn Bheula]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.916127" lon="-3.86034"><ele>912.40</ele><name><![CDATA[Beinn Bhreac]]></name><cmt><![CDATA[Beinn Bhreac]]></cmt><desc><![CDATA[Beinn Bhreac]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.466716" lon="-4.756524"><ele>802.00</ele><name><![CDATA[Beinn Bhreac-liath]]></name><cmt><![CDATA[Beinn Bhreac-liath]]></cmt><desc><![CDATA[Beinn Bhreac-liath]]></desc><sym>filled circle</sym></wpt>
@@ -40,8 +40,8 @@
 <wpt lat="56.458893" lon="-4.664935"><ele>818.00</ele><name><![CDATA[Beinn Chaorach]]></name><cmt><![CDATA[Beinn Chaorach]]></cmt><desc><![CDATA[Beinn Chaorach]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.423887" lon="-4.789867"><ele>880.00</ele><name><![CDATA[Beinn Chuirn]]></name><cmt><![CDATA[Beinn Chuirn]]></cmt><desc><![CDATA[Beinn Chuirn]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.492846" lon="-5.518149"><ele>903.00</ele><name><![CDATA[Beinn Damh]]></name><cmt><![CDATA[Beinn Damh]]></cmt><desc><![CDATA[Beinn Damh]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.588186" lon="-5.522872"><ele>913.70</ele><name><![CDATA[Beinn Dearg]]></name><cmt><![CDATA[Beinn Dearg]]></cmt><desc><![CDATA[Beinn Dearg]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.618921" lon="-4.268971"><ele>830.00</ele><name><![CDATA[Beinn Dearg]]></name><cmt><![CDATA[Beinn Dearg]]></cmt><desc><![CDATA[Beinn Dearg]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.588186" lon="-5.522872"><ele>913.70</ele><name><![CDATA[Beinn Dearg - Torridon]]></name><cmt><![CDATA[Beinn Dearg]]></cmt><desc><![CDATA[Beinn Dearg - Torridon]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.618921" lon="-4.268971"><ele>830.00</ele><name><![CDATA[Beinn Dearg - Glen Lyon]]></name><cmt><![CDATA[Beinn Dearg]]></cmt><desc><![CDATA[Beinn Dearg - Glen Lyon]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.775977" lon="-5.331425"><ele>820.00</ele><name><![CDATA[Beinn Dearg Bheag]]></name><cmt><![CDATA[Beinn Dearg Bheag]]></cmt><desc><![CDATA[Beinn Dearg Bheag]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.765796" lon="-5.309938"><ele>906.30</ele><name><![CDATA[Beinn Dearg Mor]]></name><cmt><![CDATA[Beinn Dearg Mor]]></cmt><desc><![CDATA[Beinn Dearg Mor]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.391571" lon="-5.267939"><ele>797.00</ele><name><![CDATA[Beinn Dronaig]]></name><cmt><![CDATA[Beinn Dronaig]]></cmt><desc><![CDATA[Beinn Dronaig]]></desc><sym>filled circle</sym></wpt>
@@ -95,21 +95,21 @@
 <wpt lat="57.127133" lon="-5.366446"><ele>885.50</ele><name><![CDATA[Buidhe Bheinn]]></name><cmt><![CDATA[Buidhe Bheinn]]></cmt><desc><![CDATA[Buidhe Bheinn]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="55.256099" lon="-4.213134"><ele>797.00</ele><name><![CDATA[Cairnsmore of Carsphairn]]></name><cmt><![CDATA[Cairnsmore of Carsphairn]]></cmt><desc><![CDATA[Cairnsmore of Carsphairn]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="55.649863" lon="-5.229293"><ele>859.00</ele><name><![CDATA[Caisteal Abhail]]></name><cmt><![CDATA[Caisteal Abhail]]></cmt><desc><![CDATA[Caisteal Abhail]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.476028" lon="-4.639111"><ele>884.00</ele><name><![CDATA[Cam Chreag]]></name><cmt><![CDATA[Cam Chreag]]></cmt><desc><![CDATA[Cam Chreag]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.611086" lon="-4.385627"><ele>862.00</ele><name><![CDATA[Cam Chreag]]></name><cmt><![CDATA[Cam Chreag]]></cmt><desc><![CDATA[Cam Chreag]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.476028" lon="-4.639111"><ele>884.00</ele><name><![CDATA[Cam Chreag - Auch]]></name><cmt><![CDATA[Cam Chreag]]></cmt><desc><![CDATA[Cam Chreag - Auch]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.611086" lon="-4.385627"><ele>862.00</ele><name><![CDATA[Cam Chreag - Glen Lyon]]></name><cmt><![CDATA[Cam Chreag]]></cmt><desc><![CDATA[Cam Chreag - Glen Lyon]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="58.120906" lon="-5.052849"><ele>847.00</ele><name><![CDATA[Canisp]]></name><cmt><![CDATA[Canisp]]></cmt><desc><![CDATA[Canisp]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.222594" lon="-5.087627"><ele>865.00</ele><name><![CDATA[Carn a' Choire Ghairbh]]></name><cmt><![CDATA[Carn a' Choire Ghairbh]]></cmt><desc><![CDATA[Carn a' Choire Ghairbh]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.094268" lon="-4.614836"><ele>817.00</ele><name><![CDATA[Carn a' Chuilinn]]></name><cmt><![CDATA[Carn a' Chuilinn]]></cmt><desc><![CDATA[Carn a' Chuilinn]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.137355" lon="-4.107357"><ele>878.00</ele><name><![CDATA[Carn an Fhreiceadain]]></name><cmt><![CDATA[Carn an Fhreiceadain]]></cmt><desc><![CDATA[Carn an Fhreiceadain]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.846772" lon="-4.801042"><ele>842.00</ele><name><![CDATA[Carn Ban]]></name><cmt><![CDATA[Carn Ban]]></cmt><desc><![CDATA[Carn Ban]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.813812" lon="-4.554142"><ele>839.00</ele><name><![CDATA[Carn Chuinneag]]></name><cmt><![CDATA[Carn Chuinneag]]></cmt><desc><![CDATA[Carn Chuinneag]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.959813" lon="-4.723327"><ele>834.00</ele><name><![CDATA[Carn Dearg]]></name><cmt><![CDATA[Carn Dearg]]></cmt><desc><![CDATA[Carn Dearg]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.031129" lon="-4.720434"><ele>817.00</ele><name><![CDATA[Carn Dearg]]></name><cmt><![CDATA[Carn Dearg]]></cmt><desc><![CDATA[Carn Dearg]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.015739" lon="-4.707348"><ele>768.00</ele><name><![CDATA[Carn Dearg]]></name><cmt><![CDATA[Carn Dearg]]></cmt><desc><![CDATA[Carn Dearg]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.959813" lon="-4.723327"><ele>834.00</ele><name><![CDATA[Carn Dearg - Glen Roy]]></name><cmt><![CDATA[Carn Dearg]]></cmt><desc><![CDATA[Carn Dearg - Glen Roy]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.031129" lon="-4.720434"><ele>817.00</ele><name><![CDATA[Carn Dearg - North of Gleann Eachach]]></name><cmt><![CDATA[Carn Dearg]]></cmt><desc><![CDATA[Carn Dearg - North of Gleann Eachach]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.015739" lon="-4.707348"><ele>768.00</ele><name><![CDATA[Carn Dearg - South of Gleann Eachach]]></name><cmt><![CDATA[Carn Dearg]]></cmt><desc><![CDATA[Carn Dearg - South of Gleann Eachach]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.996805" lon="-3.938649"><ele>857.00</ele><name><![CDATA[Carn Dearg Mor]]></name><cmt><![CDATA[Carn Dearg Mor]]></cmt><desc><![CDATA[Carn Dearg Mor]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.190254" lon="-3.279515"><ele>792.00</ele><name><![CDATA[Carn Ealasaid]]></name><cmt><![CDATA[Carn Ealasaid]]></cmt><desc><![CDATA[Carn Ealasaid]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.962009" lon="-5.450735"><ele>829.00</ele><name><![CDATA[Carn Mor]]></name><cmt><![CDATA[Carn Mor]]></cmt><desc><![CDATA[Carn Mor]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.249877" lon="-3.218483"><ele>804.00</ele><name><![CDATA[Carn Mor]]></name><cmt><![CDATA[Carn Mor]]></cmt><desc><![CDATA[Carn Mor]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.962009" lon="-5.450735"><ele>829.00</ele><name><![CDATA[Carn Mor - Glen Dessarry]]></name><cmt><![CDATA[Carn Mor]]></cmt><desc><![CDATA[Carn Mor - Glen Dessarry]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.249877" lon="-3.218483"><ele>804.00</ele><name><![CDATA[Carn Mor - Ladder Hills]]></name><cmt><![CDATA[Carn Mor]]></cmt><desc><![CDATA[Carn Mor - Ladder Hills]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.027417" lon="-3.439163"><ele>818.00</ele><name><![CDATA[Carn na Drochaide]]></name><cmt><![CDATA[Carn na Drochaide]]></cmt><desc><![CDATA[Carn na Drochaide]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.772398" lon="-5.460755"><ele>786.00</ele><name><![CDATA[Carn na Nathrach]]></name><cmt><![CDATA[Carn na Nathrach]]></cmt><desc><![CDATA[Carn na Nathrach]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.198975" lon="-4.320518"><ele>811.10</ele><name><![CDATA[Carn na Saobhaidhe]]></name><cmt><![CDATA[Carn na Saobhaidhe]]></cmt><desc><![CDATA[Carn na Saobhaidhe]]></desc><sym>filled circle</sym></wpt>
@@ -119,8 +119,8 @@
 <wpt lat="57.344617" lon="-3.196412"><ele>781.00</ele><name><![CDATA[Corryhabbie Hill]]></name><cmt><![CDATA[Corryhabbie Hill]]></cmt><desc><![CDATA[Corryhabbie Hill]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="55.155082" lon="-4.359126"><ele>814.00</ele><name><![CDATA[Corserine]]></name><cmt><![CDATA[Corserine]]></cmt><desc><![CDATA[Corserine]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="58.457427" lon="-4.828718"><ele>801.00</ele><name><![CDATA[Cranstackie]]></name><cmt><![CDATA[Cranstackie]]></cmt><desc><![CDATA[Cranstackie]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.661979" lon="-5.476201"><ele>853.00</ele><name><![CDATA[Creach Bheinn]]></name><cmt><![CDATA[Creach Bheinn]]></cmt><desc><![CDATA[Creach Bheinn]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.530492" lon="-5.215023"><ele>810.00</ele><name><![CDATA[Creach Bheinn]]></name><cmt><![CDATA[Creach Bheinn]]></cmt><desc><![CDATA[Creach Bheinn]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.661979" lon="-5.476201"><ele>853.00</ele><name><![CDATA[Creach Bheinn - Morvern]]></name><cmt><![CDATA[Creach Bheinn]]></cmt><desc><![CDATA[Creach Bheinn - Morvern]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.530492" lon="-5.215023"><ele>810.00</ele><name><![CDATA[Creach Bheinn - Loch Creran]]></name><cmt><![CDATA[Creach Bheinn]]></cmt><desc><![CDATA[Creach Bheinn - Loch Creran]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.066716" lon="-3.391294"><ele>863.00</ele><name><![CDATA[Creag an Dail Bheag]]></name><cmt><![CDATA[Creag an Dail Bheag]]></cmt><desc><![CDATA[Creag an Dail Bheag]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.399884" lon="-4.358068"><ele>808.60</ele><name><![CDATA[Creag Mac Ranaich]]></name><cmt><![CDATA[Creag Mac Ranaich]]></cmt><desc><![CDATA[Creag Mac Ranaich]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.124255" lon="-3.558416"><ele>895.00</ele><name><![CDATA[Creag Mhor]]></name><cmt><![CDATA[Creag Mhor]]></cmt><desc><![CDATA[Creag Mhor]]></desc><sym>filled circle</sym></wpt>
@@ -143,15 +143,15 @@
 <wpt lat="56.649493" lon="-5.503072"><ele>766.00</ele><name><![CDATA[Fuar Bheinn]]></name><cmt><![CDATA[Fuar Bheinn]]></cmt><desc><![CDATA[Fuar Bheinn]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.485376" lon="-5.379188"><ele>907.00</ele><name><![CDATA[Fuar Tholl]]></name><cmt><![CDATA[Fuar Tholl]]></cmt><desc><![CDATA[Fuar Tholl]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.051985" lon="-4.539681"><ele>895.50</ele><name><![CDATA[Gairbeinn]]></name><cmt><![CDATA[Gairbeinn]]></cmt><desc><![CDATA[Gairbeinn]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.704449" lon="-5.425008"><ele>885.00</ele><name><![CDATA[Garbh Bheinn]]></name><cmt><![CDATA[Garbh Bheinn]]></cmt><desc><![CDATA[Garbh Bheinn]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.696584" lon="-4.991428"><ele>867.00</ele><name><![CDATA[Garbh Bheinn]]></name><cmt><![CDATA[Garbh Bheinn]]></cmt><desc><![CDATA[Garbh Bheinn]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.704449" lon="-5.425008"><ele>885.00</ele><name><![CDATA[Garbh Bheinn - Ardgour]]></name><cmt><![CDATA[Garbh Bheinn]]></cmt><desc><![CDATA[Garbh Bheinn - Ardgour]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.696584" lon="-4.991428"><ele>867.00</ele><name><![CDATA[Garbh Bheinn - Loch Leven]]></name><cmt><![CDATA[Garbh Bheinn]]></cmt><desc><![CDATA[Garbh Bheinn - Loch Leven]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.233105" lon="-6.092474"><ele>808.00</ele><name><![CDATA[Garbh-bheinn]]></name><cmt><![CDATA[Garbh-bheinn]]></cmt><desc><![CDATA[Garbh-bheinn]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.196016" lon="-3.506737"><ele>821.00</ele><name><![CDATA[Geal Charn]]></name><cmt><![CDATA[Geal Charn]]></cmt><desc><![CDATA[Geal Charn]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.002612" lon="-5.037526"><ele>804.00</ele><name><![CDATA[Geal Charn]]></name><cmt><![CDATA[Geal Charn]]></cmt><desc><![CDATA[Geal Charn]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.196016" lon="-3.506737"><ele>821.00</ele><name><![CDATA[Geal Charn - Dorback]]></name><cmt><![CDATA[Geal Charn]]></cmt><desc><![CDATA[Geal Charn - Dorback]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.002612" lon="-5.037526"><ele>804.00</ele><name><![CDATA[Geal Charn - Arkaig]]></name><cmt><![CDATA[Geal Charn]]></cmt><desc><![CDATA[Geal Charn - Arkaig]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.186945" lon="-3.926922"><ele>824.00</ele><name><![CDATA[Geal-charn Mor]]></name><cmt><![CDATA[Geal-charn Mor]]></cmt><desc><![CDATA[Geal-charn Mor]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.292709" lon="-6.128399"><ele>775.00</ele><name><![CDATA[Glamaig-Sgurr Mhairi]]></name><cmt><![CDATA[Glamaig-Sgurr Mhairi]]></cmt><desc><![CDATA[Glamaig-Sgurr Mhairi]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.736083" lon="-4.847886"><ele>792.00</ele><name><![CDATA[Glas Bheinn]]></name><cmt><![CDATA[Glas Bheinn]]></cmt><desc><![CDATA[Glas Bheinn]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="58.19268" lon="-4.970573"><ele>776.00</ele><name><![CDATA[Glas Bheinn]]></name><cmt><![CDATA[Glas Bheinn]]></cmt><desc><![CDATA[Glas Bheinn]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.736083" lon="-4.847886"><ele>792.00</ele><name><![CDATA[Glas Bheinn - Kinlochleven]]></name><cmt><![CDATA[Glas Bheinn]]></cmt><desc><![CDATA[Glas Bheinn - Kinlochleven]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="58.19268" lon="-4.970573"><ele>776.00</ele><name><![CDATA[Glas Bheinn - Assynt]]></name><cmt><![CDATA[Glas Bheinn]]></cmt><desc><![CDATA[Glas Bheinn - Assynt]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="55.625849" lon="-5.191883"><ele>875.00</ele><name><![CDATA[Goatfell (Goat Fell)]]></name><cmt><![CDATA[Goatfell (Goat Fell)]]></cmt><desc><![CDATA[Goatfell (Goat Fell)]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="55.408052" lon="-3.401411"><ele>808.00</ele><name><![CDATA[Hart Fell]]></name><cmt><![CDATA[Hart Fell]]></cmt><desc><![CDATA[Hart Fell]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.948651" lon="-3.938647"><ele>911.70</ele><name><![CDATA[Leathad an Taobhain]]></name><cmt><![CDATA[Leathad an Taobhain]]></cmt><desc><![CDATA[Leathad an Taobhain]]></desc><sym>filled circle</sym></wpt>

@@ -3,7 +3,8 @@
     "allow": [
       "Bash(yarn build *)",
       "WebFetch(domain:pydoit.org)",
-      "Bash(yarn tsc *)"
+      "Bash(yarn tsc *)",
+      "WebFetch(domain:www.walkhighlands.co.uk)"
     ]
   }
 }

@@ -60,8 +60,8 @@
 <wpt lat="56.898238" lon="-4.195254"><ele>914.60</ele><name><![CDATA[Carn na Caim South Top (Mullach Coire nan Cisteachan)]]></name><cmt><![CDATA[Carn na Caim South Top (Mullach Coire nan Cisteachan)]]></cmt><desc><![CDATA[Carn na Caim South Top (Mullach Coire nan Cisteachan)]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.195627" lon="-5.089546"><ele>1001.00</ele><name><![CDATA[Carn na Coire Mheadhoin (Centre Top)]]></name><cmt><![CDATA[Carn na Coire Mheadhoin (Centre Top)]]></cmt><desc><![CDATA[Carn na Coire Mheadhoin (Centre Top)]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.267575" lon="-5.197807"><ele>967.00</ele><name><![CDATA[Carn na Con Dhu]]></name><cmt><![CDATA[Carn na Con Dhu]]></cmt><desc><![CDATA[Carn na Con Dhu]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.063181" lon="-3.750644"><ele>1265.00</ele><name><![CDATA[Carn na Criche]]></name><cmt><![CDATA[Carn na Criche]]></cmt><desc><![CDATA[Carn na Criche]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.706292" lon="-5.029065"><ele>961.00</ele><name><![CDATA[Carn na Criche]]></name><cmt><![CDATA[Carn na Criche]]></cmt><desc><![CDATA[Carn na Criche]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.063181" lon="-3.750644"><ele>1265.00</ele><name><![CDATA[Carn na Criche - Braeriach]]></name><cmt><![CDATA[Carn na Criche]]></cmt><desc><![CDATA[Carn na Criche - Braeriach]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.706292" lon="-5.029065"><ele>961.00</ele><name><![CDATA[Carn na Criche - Sgurr Mor]]></name><cmt><![CDATA[Carn na Criche]]></cmt><desc><![CDATA[Carn na Criche - Sgurr Mor]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.460882" lon="-5.129638"><ele>993.00</ele><name><![CDATA[Carn nam Fiaclan]]></name><cmt><![CDATA[Carn nam Fiaclan]]></cmt><desc><![CDATA[Carn nam Fiaclan]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.803256" lon="-4.930659"><ele>968.00</ele><name><![CDATA[Ceann Garbh]]></name><cmt><![CDATA[Ceann Garbh]]></cmt><desc><![CDATA[Ceann Garbh]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.602626" lon="-4.868189"><ele>1098.90</ele><name><![CDATA[Clach Leathad]]></name><cmt><![CDATA[Clach Leathad]]></cmt><desc><![CDATA[Clach Leathad]]></desc><sym>filled circle</sym></wpt>
@@ -95,8 +95,8 @@
 <wpt lat="57.09013" lon="-3.843201"><ele>920.00</ele><name><![CDATA[Geal-charn]]></name><cmt><![CDATA[Geal-charn]]></cmt><desc><![CDATA[Geal-charn]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.700547" lon="-4.531507"><ele>928.00</ele><name><![CDATA[Glas Leathad Beag (1891: Top of Coire Lochain)]]></name><cmt><![CDATA[Glas Leathad Beag (1891: Top of Coire Lochain)]]></cmt><desc><![CDATA[Glas Leathad Beag (1891: Top of Coire Lochain)]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.805098" lon="-5.236853"><ele>960.40</ele><name><![CDATA[Glas Mheall Liath]]></name><cmt><![CDATA[Glas Mheall Liath]]></cmt><desc><![CDATA[Glas Mheall Liath]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.816467" lon="-5.240433"><ele>979.00</ele><name><![CDATA[Glas Mheall Mor]]></name><cmt><![CDATA[Glas Mheall Mor]]></cmt><desc><![CDATA[Glas Mheall Mor]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.865197" lon="-4.165819"><ele>927.90</ele><name><![CDATA[Glas Mheall Mor]]></name><cmt><![CDATA[Glas Mheall Mor]]></cmt><desc><![CDATA[Glas Mheall Mor]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.816467" lon="-5.240433"><ele>979.00</ele><name><![CDATA[Glas Mheall Mor - An Teallach]]></name><cmt><![CDATA[Glas Mheall Mor]]></cmt><desc><![CDATA[Glas Mheall Mor - An Teallach]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.865197" lon="-4.165819"><ele>927.90</ele><name><![CDATA[Glas Mheall Mor - A' Bhuidheanach Bheag]]></name><cmt><![CDATA[Glas Mheall Mor]]></cmt><desc><![CDATA[Glas Mheall Mor - A' Bhuidheanach Bheag]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.925901" lon="-5.293369"><ele>961.00</ele><name><![CDATA[Gulvain South Top]]></name><cmt><![CDATA[Gulvain South Top]]></cmt><desc><![CDATA[Gulvain South Top]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.867686" lon="-3.353423"><ele>973.00</ele><name><![CDATA[Little Glas Maol]]></name><cmt><![CDATA[Little Glas Maol]]></cmt><desc><![CDATA[Little Glas Maol]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.945323" lon="-3.210356"><ele>956.00</ele><name><![CDATA[Little Pap]]></name><cmt><![CDATA[Little Pap]]></cmt><desc><![CDATA[Little Pap]]></desc><sym>filled circle</sym></wpt>
@@ -107,8 +107,8 @@
 <wpt lat="56.459328" lon="-4.496238"><ele>917.20</ele><name><![CDATA[Meall a' Churain]]></name><cmt><![CDATA[Meall a' Churain]]></cmt><desc><![CDATA[Meall a' Churain]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.223467" lon="-5.314546"><ele>954.90</ele><name><![CDATA[Meall an Fhuarain Mhoir]]></name><cmt><![CDATA[Meall an Fhuarain Mhoir]]></cmt><desc><![CDATA[Meall an Fhuarain Mhoir]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.979012" lon="-4.537168"><ele>970.00</ele><name><![CDATA[Meall an t-Snaim]]></name><cmt><![CDATA[Meall an t-Snaim]]></cmt><desc><![CDATA[Meall an t-Snaim]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.557815" lon="-4.670326"><ele>977.20</ele><name><![CDATA[Meall Buidhe]]></name><cmt><![CDATA[Meall Buidhe]]></cmt><desc><![CDATA[Meall Buidhe]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="57.079169" lon="-3.830232"><ele>976.00</ele><name><![CDATA[Meall Buidhe]]></name><cmt><![CDATA[Meall Buidhe]]></cmt><desc><![CDATA[Meall Buidhe]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.557815" lon="-4.670326"><ele>977.20</ele><name><![CDATA[Meall Buidhe - Glen Lyon]]></name><cmt><![CDATA[Meall Buidhe]]></cmt><desc><![CDATA[Meall Buidhe - Glen Lyon]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="57.079169" lon="-3.830232"><ele>976.00</ele><name><![CDATA[Meall Buidhe - Sgor Gaoith]]></name><cmt><![CDATA[Meall Buidhe]]></cmt><desc><![CDATA[Meall Buidhe - Sgor Gaoith]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.029704" lon="-5.540173"><ele>942.00</ele><name><![CDATA[Meall Buidhe SE Top]]></name><cmt><![CDATA[Meall Buidhe SE Top]]></cmt><desc><![CDATA[Meall Buidhe SE Top]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.941059" lon="-4.57784"><ele>1028.00</ele><name><![CDATA[Meall Coire Choille-rais]]></name><cmt><![CDATA[Meall Coire Choille-rais]]></cmt><desc><![CDATA[Meall Coire Choille-rais]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.970652" lon="-3.247598"><ele>974.00</ele><name><![CDATA[Meall Coire na Saobhaidhe]]></name><cmt><![CDATA[Meall Coire na Saobhaidhe]]></cmt><desc><![CDATA[Meall Coire na Saobhaidhe]]></desc><sym>filled circle</sym></wpt>
@@ -116,8 +116,8 @@
 <wpt lat="56.418683" lon="-5.13092"><ele>920.20</ele><name><![CDATA[Meall Cuanail]]></name><cmt><![CDATA[Meall Cuanail]]></cmt><desc><![CDATA[Meall Cuanail]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.563251" lon="-5.489464"><ele>955.00</ele><name><![CDATA[Meall Dearg (Northern Pinnacles)]]></name><cmt><![CDATA[Meall Dearg (Northern Pinnacles)]]></cmt><desc><![CDATA[Meall Dearg (Northern Pinnacles)]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.037409" lon="-3.846555"><ele>998.00</ele><name><![CDATA[Meall Dubhag]]></name><cmt><![CDATA[Meall Dubhag]]></cmt><desc><![CDATA[Meall Dubhag]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.515534" lon="-4.312042"><ele>1026.70</ele><name><![CDATA[Meall Garbh]]></name><cmt><![CDATA[Meall Garbh]]></cmt><desc><![CDATA[Meall Garbh]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.817718" lon="-4.669278"><ele>976.00</ele><name><![CDATA[Meall Garbh]]></name><cmt><![CDATA[Meall Garbh]]></cmt><desc><![CDATA[Meall Garbh]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.515534" lon="-4.312042"><ele>1026.70</ele><name><![CDATA[Meall Garbh - Ben Lawers]]></name><cmt><![CDATA[Meall Garbh]]></cmt><desc><![CDATA[Meall Garbh - Ben Lawers]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.817718" lon="-4.669278"><ele>976.00</ele><name><![CDATA[Meall Garbh - Chno Dearg]]></name><cmt><![CDATA[Meall Garbh]]></cmt><desc><![CDATA[Meall Garbh - Chno Dearg]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.820156" lon="-4.562889"><ele>924.00</ele><name><![CDATA[Meall Glas Choire]]></name><cmt><![CDATA[Meall Glas Choire]]></cmt><desc><![CDATA[Meall Glas Choire]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.677638" lon="-4.966577"><ele>922.00</ele><name><![CDATA[Meall Gorm SE Top]]></name><cmt><![CDATA[Meall Gorm SE Top]]></cmt><desc><![CDATA[Meall Gorm SE Top]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.634501" lon="-4.132458"><ele>1012.00</ele><name><![CDATA[Meall Liath]]></name><cmt><![CDATA[Meall Liath]]></cmt><desc><![CDATA[Meall Liath]]></desc><sym>filled circle</sym></wpt>
@@ -214,8 +214,8 @@
 <wpt lat="56.648848" lon="-5.021795"><ele>1115.50</ele><name><![CDATA[Stob Coire nan Lochan]]></name><cmt><![CDATA[Stob Coire nan Lochan]]></cmt><desc><![CDATA[Stob Coire nan Lochan]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.82737" lon="-4.690243"><ele>958.00</ele><name><![CDATA[Stob Coire Sgriodain South Top]]></name><cmt><![CDATA[Stob Coire Sgriodain South Top]]></cmt><desc><![CDATA[Stob Coire Sgriodain South Top]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.428992" lon="-5.143789"><ele>1103.10</ele><name><![CDATA[Stob Dearg (Taynuilt Peak)]]></name><cmt><![CDATA[Stob Dearg (Taynuilt Peak)]]></cmt><desc><![CDATA[Stob Dearg (Taynuilt Peak)]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.425894" lon="-5.089645"><ele>981.70</ele><name><![CDATA[Stob Garbh]]></name><cmt><![CDATA[Stob Garbh]]></cmt><desc><![CDATA[Stob Garbh]]></desc><sym>filled circle</sym></wpt>
-<wpt lat="56.364811" lon="-4.573721"><ele>957.70</ele><name><![CDATA[Stob Garbh]]></name><cmt><![CDATA[Stob Garbh]]></cmt><desc><![CDATA[Stob Garbh]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.425894" lon="-5.089645"><ele>981.70</ele><name><![CDATA[Stob Garbh - Stob Daimh]]></name><cmt><![CDATA[Stob Garbh]]></cmt><desc><![CDATA[Stob Garbh - Stob Daimh]]></desc><sym>filled circle</sym></wpt>
+<wpt lat="56.364811" lon="-4.573721"><ele>957.70</ele><name><![CDATA[Stob Garbh - Cruach Ardrain]]></name><cmt><![CDATA[Stob Garbh]]></cmt><desc><![CDATA[Stob Garbh - Cruach Ardrain]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.636834" lon="-4.924237"><ele>1010.40</ele><name><![CDATA[Stob na Doire]]></name><cmt><![CDATA[Stob na Doire]]></cmt><desc><![CDATA[Stob na Doire]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="56.48104" lon="-4.620586"><ele>956.00</ele><name><![CDATA[Stob nan Clach]]></name><cmt><![CDATA[Stob nan Clach]]></cmt><desc><![CDATA[Stob nan Clach]]></desc><sym>filled circle</sym></wpt>
 <wpt lat="57.56707" lon="-5.442418"><ele>915.40</ele><name><![CDATA[Stuc a' Choire Dhuibh Bhig]]></name><cmt><![CDATA[Stuc a' Choire Dhuibh Bhig]]></cmt><desc><![CDATA[Stuc a' Choire Dhuibh Bhig]]></desc><sym>filled circle</sym></wpt>
