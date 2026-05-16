@@ -92,10 +92,11 @@ export function useDriveData(token: string | null): DriveDataState {
         const peaksFolder = rootFolders.find(f => f.name === 'peaks');
         if (!peaksFolder) return;
 
-        const [pmtilesFile, indexFile, displayFile] = await Promise.all([
+        const [pmtilesFile, indexFile, displayFile, manualFile] = await Promise.all([
             api.findFileByName(tok, 'peaks.pmtiles', peaksFolder.id),
             api.findFileByName(tok, 'peaks-index.json', peaksFolder.id),
             api.findFileByName(tok, 'display.json', peaksFolder.id),
+            api.findFileByName(tok, 'peaks-manual.json', peaksFolder.id),
         ]);
 
         let displayConfig: Record<string, PeakCategoryDisplay> = {};
@@ -136,7 +137,15 @@ export function useDriveData(token: string | null): DriveDataState {
                 : cats;
             setPeakCategories(orderedCats);
             setPeakDefaultHidden(computeDefaultHidden(orderedCats.map(c => c.name)));
-            setBaggedTracks(Array.isArray(idx.bagged) ? (idx.bagged as BaggedTrack[]) : []);
+            const autoBagged: BaggedTrack[] = Array.isArray(idx.bagged) ? (idx.bagged as BaggedTrack[]) : [];
+            let manualBagged: BaggedTrack[] = [];
+            if (manualFile) {
+                try {
+                    const manual = JSON.parse(await api.readFileText(tok, manualFile.id));
+                    if (Array.isArray(manual.bagged)) manualBagged = manual.bagged as BaggedTrack[];
+                } catch { /* ignore unreadable or malformed manual file */ }
+            }
+            setBaggedTracks([...autoBagged, ...manualBagged]);
 
             // Load GPX files not yet in the PMTiles index so they appear immediately
             const indexedCategories = new Set(cats.map(c => c.name));
