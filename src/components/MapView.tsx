@@ -28,8 +28,8 @@ function generatePeakIcon(shape: PeakShape, color: string, strokeColor: string, 
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
     } else if (shape === 'triangle') {
         ctx.moveTo(cx, cy - r);
-        ctx.lineTo(cx + r * Math.sin(2 * Math.PI / 3), cy - r * Math.cos(2 * Math.PI / 3));
-        ctx.lineTo(cx + r * Math.sin(4 * Math.PI / 3), cy - r * Math.cos(4 * Math.PI / 3));
+        ctx.lineTo(cx + r * Math.sin((2 * Math.PI) / 3), cy - r * Math.cos((2 * Math.PI) / 3));
+        ctx.lineTo(cx + r * Math.sin((4 * Math.PI) / 3), cy - r * Math.cos((4 * Math.PI) / 3));
         ctx.closePath();
     } else if (shape === 'square') {
         const h = r * 0.9;
@@ -119,7 +119,7 @@ const trackPmtilesLayerId = (cat: string) => `tracks-pmtiles-${cat}`;
 const PEAKS_PMTILES_SOURCE = 'peaks-pmtiles';
 const peakPmtilesLayerId = (name: string) => `peaks-pmtiles-symbol-${name}`;
 const overlaySourceId = (id: string) => `overlay-${id}`;
-const overlayLayerId = (id: string) => `overlay-${id}`;       // single-color (no lineStyle)
+const overlayLayerId = (id: string) => `overlay-${id}`; // single-color (no lineStyle)
 const overlayOuterLayerId = (id: string) => `overlay-${id}-outer`;
 const overlayInnerLayerId = (id: string) => `overlay-${id}-inner`;
 
@@ -143,15 +143,27 @@ const DONE_TICK_PAINT = {
 };
 
 // Scale peak icons with zoom: small at overview, full-size when zoomed in
-const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15, 1.5] as unknown as maplibregl.ExpressionSpecification;
+const PEAK_ICON_SIZE = [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    7,
+    0.4,
+    11,
+    0.9,
+    15,
+    1.5,
+] as unknown as maplibregl.ExpressionSpecification;
 
 function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleSpecification): StyleSpecification {
     if (!prev) return next;
     const customSources: Record<string, SourceSpecification> = {};
     for (const [id, src] of Object.entries(prev.sources ?? {})) {
         if (
-            id.startsWith('track-') || id.startsWith('peaks-') ||
-            id === PMTILES_SOURCE || id === PEAKS_PMTILES_SOURCE ||
+            id.startsWith('track-') ||
+            id.startsWith('peaks-') ||
+            id === PMTILES_SOURCE ||
+            id === PEAKS_PMTILES_SOURCE ||
             id.startsWith('overlay-')
         ) {
             customSources[id] = src as SourceSpecification;
@@ -230,17 +242,39 @@ export function MapView({
     const onErrorRef = useRef(onError);
     const onStyleLoadRef = useRef(onStyleLoad);
     const onStyleFailRef = useRef(onStyleFail);
-    useEffect(() => { onBoundsChangeRef.current = onBoundsChange; });
-    useEffect(() => { onMoveRef.current = onMove; });
-    useEffect(() => { onTrackClickRef.current = onTrackClick; });
-    useEffect(() => { onTrackHoverRef.current = onTrackHover; });
-    useEffect(() => { onPeakClickRef.current = onPeakClick; });
-    useEffect(() => { onPeakHoverRef.current = onPeakHover; });
-    useEffect(() => { onPeakHoverEndRef.current = onPeakHoverEnd; });
-    useEffect(() => { onBearingChangeRef.current = onBearingChange; });
-    useEffect(() => { onErrorRef.current = onError; });
-    useEffect(() => { onStyleLoadRef.current = onStyleLoad; });
-    useEffect(() => { onStyleFailRef.current = onStyleFail; });
+    useEffect(() => {
+        onBoundsChangeRef.current = onBoundsChange;
+    });
+    useEffect(() => {
+        onMoveRef.current = onMove;
+    });
+    useEffect(() => {
+        onTrackClickRef.current = onTrackClick;
+    });
+    useEffect(() => {
+        onTrackHoverRef.current = onTrackHover;
+    });
+    useEffect(() => {
+        onPeakClickRef.current = onPeakClick;
+    });
+    useEffect(() => {
+        onPeakHoverRef.current = onPeakHover;
+    });
+    useEffect(() => {
+        onPeakHoverEndRef.current = onPeakHoverEnd;
+    });
+    useEffect(() => {
+        onBearingChangeRef.current = onBearingChange;
+    });
+    useEffect(() => {
+        onErrorRef.current = onError;
+    });
+    useEffect(() => {
+        onStyleLoadRef.current = onStyleLoad;
+    });
+    useEffect(() => {
+        onStyleFailRef.current = onStyleFail;
+    });
 
     // Increments whenever the style finishes loading, triggering layer effects
     const [mapVersion, setMapVersion] = useState(0);
@@ -468,7 +502,13 @@ export function MapView({
                         const f = e.features?.[0];
                         if (f) {
                             const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                            onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0]);
+                            onPeakClickRef.current(
+                                f.properties?.name ?? '',
+                                f.properties?.ele ?? 0,
+                                ps.category,
+                                coords[1],
+                                coords[0],
+                            );
                         }
                     });
                 } else {
@@ -477,7 +517,13 @@ export function MapView({
                         const f = e.features?.[0];
                         if (f) {
                             const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                            onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, ps.category, coords[1], coords[0]);
+                            onPeakHoverRef.current?.(
+                                f.properties?.name ?? '',
+                                f.properties?.ele ?? 0,
+                                ps.category,
+                                coords[1],
+                                coords[0],
+                            );
                         }
                     });
                     map.on('mouseleave', lid, () => {
@@ -524,7 +570,13 @@ export function MapView({
                     const f = e.features?.[0];
                     if (f) {
                         const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakClickRef.current(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0]);
+                        onPeakClickRef.current(
+                            f.properties?.name ?? '',
+                            f.properties?.ele ?? 0,
+                            pc.name,
+                            coords[1],
+                            coords[0],
+                        );
                     }
                 });
             } else {
@@ -533,7 +585,13 @@ export function MapView({
                     const f = e.features?.[0];
                     if (f) {
                         const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakHoverRef.current?.(f.properties?.name ?? '', f.properties?.ele ?? 0, pc.name, coords[1], coords[0]);
+                        onPeakHoverRef.current?.(
+                            f.properties?.name ?? '',
+                            f.properties?.ele ?? 0,
+                            pc.name,
+                            coords[1],
+                            coords[0],
+                        );
                     }
                 });
                 map.on('mouseleave', lid, () => {
@@ -549,7 +607,8 @@ export function MapView({
                     type: 'symbol',
                     source: PEAKS_PMTILES_SOURCE,
                     'source-layer': 'peaks',
-                    filter: ['all',
+                    filter: [
+                        'all',
                         ['==', ['get', 'category'], pc.name],
                         ['in', ['get', 'name'], ['literal', []]],
                     ] as unknown as maplibregl.FilterSpecification,
@@ -567,11 +626,9 @@ export function MapView({
         for (const pc of peakCategories) {
             const lid = peakPmtilesLayerId(pc.name);
             const vis = hiddenPeakCategories.includes(pc.name) ? 'none' : 'visible';
-            if (map.getLayer(lid))
-                map.setLayoutProperty(lid, 'visibility', vis);
+            if (map.getLayer(lid)) map.setLayoutProperty(lid, 'visibility', vis);
             const doneLid = `${lid}-done-tick`;
-            if (map.getLayer(doneLid))
-                map.setLayoutProperty(doneLid, 'visibility', vis);
+            if (map.getLayer(doneLid)) map.setLayoutProperty(doneLid, 'visibility', vis);
         }
     }, [peakCategories, hiddenPeakCategories, mapVersion]);
 
@@ -586,13 +643,13 @@ export function MapView({
             const doneNames = [...baggedSet]
                 .filter(k => k.startsWith(`${pc.name}:`))
                 .map(k => k.slice(pc.name.length + 1));
-            map.setFilter(doneLid, ['all',
+            map.setFilter(doneLid, [
+                'all',
                 ['==', ['get', 'category'], pc.name],
                 ['in', ['get', 'name'], ['literal', doneNames]],
             ] as unknown as maplibregl.FilterSpecification);
         }
     }, [baggedSet, peakCategories, peaksPmtilesFileId, mapVersion]);
-
 
     // Sync PMTiles tracks overlay — one layer per category so dashArray can vary.
     useEffect(() => {
@@ -662,8 +719,12 @@ export function MapView({
                 const innerId = overlayInnerLayerId(ov.id);
                 if (!map.getLayer(outerId)) {
                     map.addLayer({
-                        id: outerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
-                        ...minzoom, ...filter,
+                        id: outerId,
+                        type: 'line',
+                        source: srcId,
+                        'source-layer': ov.sourceLayer,
+                        ...minzoom,
+                        ...filter,
                         paint: {
                             'line-color': ov.lineStyle.outerColor,
                             'line-width': ov.lineStyle.outerWidth,
@@ -673,8 +734,12 @@ export function MapView({
                 }
                 if (!map.getLayer(innerId)) {
                     map.addLayer({
-                        id: innerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
-                        ...minzoom, ...filter,
+                        id: innerId,
+                        type: 'line',
+                        source: srcId,
+                        'source-layer': ov.sourceLayer,
+                        ...minzoom,
+                        ...filter,
                         paint: {
                             'line-color': ov.lineStyle.innerColor,
                             'line-width': ov.lineStyle.innerWidth,
@@ -686,8 +751,12 @@ export function MapView({
                 const layId = overlayLayerId(ov.id);
                 if (!map.getLayer(layId)) {
                     map.addLayer({
-                        id: layId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
-                        ...minzoom, ...filter,
+                        id: layId,
+                        type: 'line',
+                        source: srcId,
+                        'source-layer': ov.sourceLayer,
+                        ...minzoom,
+                        ...filter,
                         paint: {
                             'line-color': ov.overlayColor ?? '#e8a020',
                             'line-width': ov.overlayWidth ?? 1.5,
@@ -721,9 +790,8 @@ export function MapView({
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
-        const typeFilter = hiddenTrackTypes.length > 0
-            ? ['!', ['in', ['get', 'track_type'], ['literal', hiddenTrackTypes]]]
-            : null;
+        const typeFilter =
+            hiddenTrackTypes.length > 0 ? ['!', ['in', ['get', 'track_type'], ['literal', hiddenTrackTypes]]] : null;
         for (const cat of categories) {
             const lid = trackPmtilesLayerId(cat.name);
             if (!map.getLayer(lid)) continue;

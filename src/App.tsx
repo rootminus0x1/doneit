@@ -66,7 +66,13 @@ export default function App() {
     const [mapError, setMapError] = useState<string | null>(null);
     const [bearing, setBearing] = useState(0);
     const [northTrigger, setNorthTrigger] = useState(0);
-    const [hoverPeak, setHoverPeak] = useState<{ name: string; elevation: number; category: string; lat: number; lng: number } | null>(null);
+    const [hoverPeak, setHoverPeak] = useState<{
+        name: string;
+        elevation: number;
+        category: string;
+        lat: number;
+        lng: number;
+    } | null>(null);
     const lastGoodSourceIdRef = useRef<string | null>(null);
     const [popup, setPopup] = useState<{
         title: string;
@@ -113,7 +119,9 @@ export default function App() {
 
     const availableTrackTypes = useMemo(
         () =>
-            [...new Set((trackIndex?.tracks ?? []).map(t => t.trackType).filter((t): t is string => t !== null))].sort(),
+            [
+                ...new Set((trackIndex?.tracks ?? []).map(t => t.trackType).filter((t): t is string => t !== null)),
+            ].sort(),
         [trackIndex],
     );
 
@@ -200,13 +208,23 @@ export default function App() {
         setHoverTrack(data);
     }, []);
 
-    const handlePeakClick = useCallback((name: string, elevation: number, category: string, lat: number, lng: number) => {
-        setPopup({ title: name, body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m  ·  ${formatCoord(lat, lng)}`, peakMeta: { name, category, lat, lng, ele: elevation } });
-    }, []);
+    const handlePeakClick = useCallback(
+        (name: string, elevation: number, category: string, lat: number, lng: number) => {
+            setPopup({
+                title: name,
+                body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m  ·  ${formatCoord(lat, lng)}`,
+                peakMeta: { name, category, lat, lng, ele: elevation },
+            });
+        },
+        [],
+    );
 
-    const handlePeakHover = useCallback((name: string, elevation: number, category: string, lat: number, lng: number) => {
-        setHoverPeak({ name, elevation, category, lat, lng });
-    }, []);
+    const handlePeakHover = useCallback(
+        (name: string, elevation: number, category: string, lat: number, lng: number) => {
+            setHoverPeak({ name, elevation, category, lat, lng });
+        },
+        [],
+    );
 
     const handlePeakHoverEnd = useCallback(() => setHoverPeak(null), []);
 
@@ -284,11 +302,7 @@ export default function App() {
                 )}
             </div>
 
-            {showVersion && (
-                <div style={styles.versionToast}>
-                    Version: {formatDatetime(__BUILD_TIME__)}
-                </div>
-            )}
+            {showVersion && <div style={styles.versionToast}>Version: {formatDatetime(__BUILD_TIME__)}</div>}
 
             {token && !ready && <div style={styles.loadingBanner}>Loading…</div>}
 
@@ -326,22 +340,27 @@ export default function App() {
                     <div style={styles.popup} onClick={e => e.stopPropagation()}>
                         <div style={styles.popupTitle}>{popup.title}</div>
                         {popup.body && <div style={styles.popupBody}>{popup.body}</div>}
-                        {popup.peakMeta && (() => {
-                            const meta = popup.peakMeta!;
-                            const key = `${meta.category}:${meta.name}`;
-                            if (!baggedSet.has(key)) return null;
-                            const dates = baggedTracks
-                                .filter(bt => bt.peaks.some(bp => bp.category === meta.category && bp.names.includes(meta.name)))
-                                .map(bt => bt.date)
-                                .filter((d): d is string => d !== null)
-                                .sort()
-                                .map(formatDate);
-                            return (
-                                <div style={styles.popupBaggedDate}>
-                                    ✔ Bagged{dates.length > 0 ? `: ${dates.join(', ')}` : ''}
-                                </div>
-                            );
-                        })()}
+                        {popup.peakMeta &&
+                            (() => {
+                                const meta = popup.peakMeta!;
+                                const key = `${meta.category}:${meta.name}`;
+                                if (!baggedSet.has(key)) return null;
+                                const dates = baggedTracks
+                                    .filter(bt =>
+                                        bt.peaks.some(
+                                            bp => bp.category === meta.category && bp.names.includes(meta.name),
+                                        ),
+                                    )
+                                    .map(bt => bt.date)
+                                    .filter((d): d is string => d !== null)
+                                    .sort()
+                                    .map(formatDate);
+                                return (
+                                    <div style={styles.popupBaggedDate}>
+                                        ✔ Bagged{dates.length > 0 ? `: ${dates.join(', ')}` : ''}
+                                    </div>
+                                );
+                            })()}
                         <button style={styles.popupClose} onClick={() => setPopup(null)}>
                             ✕
                         </button>
@@ -354,13 +373,18 @@ export default function App() {
                     <div style={{ ...styles.popup, pointerEvents: 'none' }}>
                         <div style={styles.popupTitle}>{hoverPeak.name}</div>
                         <div style={styles.popupBody}>
-                            {hoverPeak.category} · {Math.round(hoverPeak.elevation).toLocaleString()} m · {formatCoord(hoverPeak.lat, hoverPeak.lng)}
+                            {hoverPeak.category} · {Math.round(hoverPeak.elevation).toLocaleString()} m ·{' '}
+                            {formatCoord(hoverPeak.lat, hoverPeak.lng)}
                         </div>
                         {(() => {
                             const key = `${hoverPeak.category}:${hoverPeak.name}`;
                             if (!baggedSet.has(key)) return null;
                             const dates = baggedTracks
-                                .filter(bt => bt.peaks.some(bp => bp.category === hoverPeak.category && bp.names.includes(hoverPeak.name)))
+                                .filter(bt =>
+                                    bt.peaks.some(
+                                        bp => bp.category === hoverPeak.category && bp.names.includes(hoverPeak.name),
+                                    ),
+                                )
                                 .map(bt => bt.date)
                                 .filter((d): d is string => d !== null)
                                 .sort()

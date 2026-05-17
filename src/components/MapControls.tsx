@@ -38,7 +38,16 @@ export function MapControls({ onLocate, bearing = 0, onResetNorth }: Props) {
     return (
         <div style={styles.container}>
             <button style={styles.btn} title="Reset north" onClick={onResetNorth}>
-                <svg viewBox="0 0 24 24" width="22" height="22" style={{ transform: `rotate(${-bearing}deg)`, transition: 'transform 0.1s linear', display: 'block' }}>
+                <svg
+                    viewBox="0 0 24 24"
+                    width="22"
+                    height="22"
+                    style={{
+                        transform: `rotate(${-bearing}deg)`,
+                        transition: 'transform 0.1s linear',
+                        display: 'block',
+                    }}
+                >
                     <polygon points="12,3 15.5,13 12,11 8.5,13" fill="#d32f2f" />
                     <polygon points="12,21 8.5,11 12,13 15.5,11" fill="#bdbdbd" />
                 </svg>

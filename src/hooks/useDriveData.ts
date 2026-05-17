@@ -32,7 +32,7 @@ export interface BaggedPeak {
 }
 
 export interface BaggedTrack {
-    track: string;       // GPX filename, e.g. "activity_1234.gpx"
+    track: string; // GPX filename, e.g. "activity_1234.gpx"
     date: string | null; // "2026-05-14"
     peaks: BaggedPeak[];
 }
@@ -108,7 +108,9 @@ export function useDriveData(token: string | null): DriveDataState {
                     displayConfig = disp.categories as Record<string, PeakCategoryDisplay>;
                 if (Array.isArray(disp.defaultVisible))
                     defaultVisibleSet = new Set<string>(disp.defaultVisible as string[]);
-            } catch { /* ignore bad config */ }
+            } catch {
+                /* ignore bad config */
+            }
         }
         setPeakDisplayConfig(displayConfig);
 
@@ -122,19 +124,22 @@ export function useDriveData(token: string | null): DriveDataState {
             if (idx.version !== 2) {
                 throw new Error(
                     `peaks-index.json has an incompatible format (version ${idx.version ?? 'none'}, expected 2). ` +
-                    `Run "yarn data" to rebuild, or delete peaks-index.json from Drive and re-run. ` +
-                    `Expected: { version: 2, categories: [{name, count}], ` +
-                    `bagged: [{track, date, peaks: [{category, names}]}] }`,
+                        `Run "yarn data" to rebuild, or delete peaks-index.json from Drive and re-run. ` +
+                        `Expected: { version: 2, categories: [{name, count}], ` +
+                        `bagged: [{track, date, peaks: [{category, names}]}] }`,
                 );
             }
             const cats: RawPeakCategory[] = Array.isArray(idx.categories) ? (idx.categories as RawPeakCategory[]) : [];
             const displayOrder = Object.keys(displayConfig);
-            const orderedCats = displayOrder.length > 0
-                ? [
-                    ...displayOrder.map(name => cats.find(c => c.name === name)).filter((c): c is RawPeakCategory => c !== undefined),
-                    ...cats.filter(c => !displayOrder.includes(c.name)),
-                  ]
-                : cats;
+            const orderedCats =
+                displayOrder.length > 0
+                    ? [
+                          ...displayOrder
+                              .map(name => cats.find(c => c.name === name))
+                              .filter((c): c is RawPeakCategory => c !== undefined),
+                          ...cats.filter(c => !displayOrder.includes(c.name)),
+                      ]
+                    : cats;
             setPeakCategories(orderedCats);
             setPeakDefaultHidden(computeDefaultHidden(orderedCats.map(c => c.name)));
             const autoBagged: BaggedTrack[] = Array.isArray(idx.bagged) ? (idx.bagged as BaggedTrack[]) : [];
@@ -143,7 +148,9 @@ export function useDriveData(token: string | null): DriveDataState {
                 try {
                     const manual = JSON.parse(await api.readFileText(tok, manualFile.id));
                     if (Array.isArray(manual.bagged)) manualBagged = manual.bagged as BaggedTrack[];
-                } catch { /* ignore unreadable or malformed manual file */ }
+                } catch {
+                    /* ignore unreadable or malformed manual file */
+                }
             }
             setBaggedTracks([...autoBagged, ...manualBagged]);
 
@@ -157,7 +164,9 @@ export function useDriveData(token: string | null): DriveDataState {
                     try {
                         const text = await api.readFileText(tok, f.id);
                         unindexed.push(parsePeaksGpx(text, cat));
-                    } catch { /* skip unreadable file */ }
+                    } catch {
+                        /* skip unreadable file */
+                    }
                 }
             }
             if (unindexed.length > 0) setPeakSets(unindexed);
@@ -171,7 +180,9 @@ export function useDriveData(token: string | null): DriveDataState {
             try {
                 const text = await api.readFileText(tok, f.id);
                 loaded.push(parsePeaksGpx(text, gpxNameToCategory(f.name)));
-            } catch { /* skip unreadable peaks file */ }
+            } catch {
+                /* skip unreadable peaks file */
+            }
         }
         setPeakSets(loaded);
         setPeakDefaultHidden(computeDefaultHidden(loaded.map(ps => ps.category)));
@@ -260,5 +271,19 @@ export function useDriveData(token: string | null): DriveDataState {
         baggedTracks.flatMap(bt => bt.peaks.flatMap(bp => bp.names.map(n => `${bp.category}:${n}`))),
     );
 
-    return { ready, error, trackIndex, categories, peakSets, peakCategories, peakDisplayConfig, peakDefaultHidden, tracksPmtilesFileId, peaksPmtilesFileId, baggedTracks, baggedSet, unindexedFiles };
+    return {
+        ready,
+        error,
+        trackIndex,
+        categories,
+        peakSets,
+        peakCategories,
+        peakDisplayConfig,
+        peakDefaultHidden,
+        tracksPmtilesFileId,
+        peaksPmtilesFileId,
+        baggedTracks,
+        baggedSet,
+        unindexedFiles,
+    };
 }

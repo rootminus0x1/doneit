@@ -14,7 +14,14 @@ interface Props {
 const CARD = 64;
 const STEP = 5; // px offset per stacked card
 
-export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect, rowAccessLevel, onRowAccessChange }: Props) {
+export function MapStyleSelector({
+    sources,
+    activeId,
+    sidebarOpen,
+    onSelect,
+    rowAccessLevel,
+    onRowAccessChange,
+}: Props) {
     const [open, setOpen] = useState(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 

@@ -8,10 +8,9 @@ export interface AuthState {
     error: string | null;
 }
 
-const SCOPE = [
-    'https://www.googleapis.com/auth/drive.readonly',
-    'https://www.googleapis.com/auth/drive.file',
-].join(' ');
+const SCOPE = ['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'].join(
+    ' ',
+);
 
 const SIGNED_IN_KEY = 'doneit-signed-in';
 
@@ -43,7 +42,9 @@ export function useGoogleAuth(): AuthState {
         },
     });
 
-    useEffect(() => { silentSignInRef.current = silentSignIn; }, [silentSignIn]);
+    useEffect(() => {
+        silentSignInRef.current = silentSignIn;
+    }, [silentSignIn]);
 
     // Attempt silent re-auth on mount if user was previously signed in
     useEffect(() => {

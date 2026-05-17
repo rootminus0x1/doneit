@@ -121,9 +121,7 @@ export function Sidebar({
                                                 {doneCount}/{pc.count}
                                             </span>
                                         )}
-                                        {pc.indexed && (
-                                            <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
-                                        )}
+                                        {pc.indexed && <span style={styles.toggle}>{hidden ? '○' : '●'}</span>}
                                     </button>
                                 );
                             })}
@@ -228,8 +226,24 @@ const styles: Record<string, React.CSSProperties> = {
     swatch: { width: 12, height: 12, borderRadius: 2, flexShrink: 0 },
     filterLabel: { fontSize: 14, flex: 1, color: '#222' },
     toggle: { fontSize: 12, color: '#1a73e8', flexShrink: 0 },
-    toggleBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#1a73e8', flexShrink: 0, padding: 0 },
-    doneToggleBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#4caf50', flexShrink: 0, padding: 0 },
+    toggleBtn: {
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 12,
+        color: '#1a73e8',
+        flexShrink: 0,
+        padding: 0,
+    },
+    doneToggleBtn: {
+        background: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 11,
+        color: '#4caf50',
+        flexShrink: 0,
+        padding: 0,
+    },
     doneCount: { fontSize: 11, color: '#4caf50', flexShrink: 0 },
     metaRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
     count: { fontSize: 11, color: '#999', marginLeft: 'auto' },

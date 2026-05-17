@@ -37,8 +37,8 @@ export function findGpxText(xml: string, ...path: string[]): string | null {
 export function parseGpxMeta(xml: string): GpxMeta {
     return {
         displayName: findGpxText(xml, 'trk', 'name') ?? findGpxText(xml, 'name'),
-        trackType:   findGpxText(xml, 'trk', 'type'),
-        datetime:    findGpxText(xml, 'metadata', 'time') ?? findGpxText(xml, 'trkpt', 'time'),
-        linkText:    findGpxText(xml, 'metadata', 'link', 'text'),
+        trackType: findGpxText(xml, 'trk', 'type'),
+        datetime: findGpxText(xml, 'metadata', 'time') ?? findGpxText(xml, 'trkpt', 'time'),
+        linkText: findGpxText(xml, 'metadata', 'link', 'text'),
     };
 }
