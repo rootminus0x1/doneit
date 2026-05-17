@@ -388,6 +388,66 @@ export function MapView({
         map.setStyle(styleFor(source), { transformStyle: preserveCustomLayers });
     }, [source]);
 
+    // Add pmtiles-overlay sources and line layers — must run before track/peak layers
+    // so overlays render below tracks and peaks in MapLibre's layer order.
+    // Overlays with lineStyle get two stacked layers (outer halo + inner colour);
+    // overlays without lineStyle get a single layer.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0) return;
+        for (const ov of overlays) {
+            if (!ov.fileId || !ov.sourceLayer) continue;
+            const srcId = overlaySourceId(ov.id);
+            if (!map.getSource(srcId)) {
+                map.addSource(srcId, { type: 'vector', url: `pmtiles://${ov.fileId}` });
+            }
+            const filter = ov.overlayFilter
+                ? { filter: ['==', ['get', 'row_type'], ov.overlayFilter] as unknown as maplibregl.FilterSpecification }
+                : {};
+            const minzoom = ov.overlayMinZoom !== undefined ? { minzoom: ov.overlayMinZoom } : {};
+
+            if (ov.lineStyle) {
+                const outerId = overlayOuterLayerId(ov.id);
+                const innerId = overlayInnerLayerId(ov.id);
+                if (!map.getLayer(outerId)) {
+                    map.addLayer({
+                        id: outerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
+                        ...minzoom, ...filter,
+                        paint: {
+                            'line-color': ov.lineStyle.outerColor,
+                            'line-width': ov.lineStyle.outerWidth,
+                            'line-opacity': ov.lineStyle.outerOpacity,
+                        },
+                    });
+                }
+                if (!map.getLayer(innerId)) {
+                    map.addLayer({
+                        id: innerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
+                        ...minzoom, ...filter,
+                        paint: {
+                            'line-color': ov.lineStyle.innerColor,
+                            'line-width': ov.lineStyle.innerWidth,
+                            'line-opacity': 1,
+                        },
+                    });
+                }
+            } else {
+                const layId = overlayLayerId(ov.id);
+                if (!map.getLayer(layId)) {
+                    map.addLayer({
+                        id: layId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
+                        ...minzoom, ...filter,
+                        paint: {
+                            'line-color': ov.overlayColor ?? '#e8a020',
+                            'line-width': ov.overlayWidth ?? 1.5,
+                            'line-opacity': ov.overlayOpacity ?? 0.75,
+                        },
+                    });
+                }
+            }
+        }
+    }, [overlays, mapVersion]);
+
     // Sync track layers — reruns when tracks change or after style loads
     useEffect(() => {
         const map = mapRef.current;
@@ -696,77 +756,6 @@ export function MapView({
             }
         }
     }, [tracksPmtilesFileId, categories, mapVersion]);
-
-    // Add pmtiles-overlay sources and line layers — one per overlay entry in tile-sources.json.
-    // Overlays with lineStyle get two stacked layers (outer halo + inner colour);
-    // overlays without lineStyle get a single layer.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || mapVersion === 0) return;
-        for (const ov of overlays) {
-            if (!ov.fileId || !ov.sourceLayer) continue;
-            const srcId = overlaySourceId(ov.id);
-            if (!map.getSource(srcId)) {
-                map.addSource(srcId, { type: 'vector', url: `pmtiles://${ov.fileId}` });
-            }
-            const filter = ov.overlayFilter
-                ? { filter: ['==', ['get', 'row_type'], ov.overlayFilter] as unknown as maplibregl.FilterSpecification }
-                : {};
-            const minzoom = ov.overlayMinZoom !== undefined ? { minzoom: ov.overlayMinZoom } : {};
-
-            if (ov.lineStyle) {
-                const outerId = overlayOuterLayerId(ov.id);
-                const innerId = overlayInnerLayerId(ov.id);
-                if (!map.getLayer(outerId)) {
-                    map.addLayer({
-                        id: outerId,
-                        type: 'line',
-                        source: srcId,
-                        'source-layer': ov.sourceLayer,
-                        ...minzoom,
-                        ...filter,
-                        paint: {
-                            'line-color': ov.lineStyle.outerColor,
-                            'line-width': ov.lineStyle.outerWidth,
-                            'line-opacity': ov.lineStyle.outerOpacity,
-                        },
-                    });
-                }
-                if (!map.getLayer(innerId)) {
-                    map.addLayer({
-                        id: innerId,
-                        type: 'line',
-                        source: srcId,
-                        'source-layer': ov.sourceLayer,
-                        ...minzoom,
-                        ...filter,
-                        paint: {
-                            'line-color': ov.lineStyle.innerColor,
-                            'line-width': ov.lineStyle.innerWidth,
-                            'line-opacity': 1,
-                        },
-                    });
-                }
-            } else {
-                const layId = overlayLayerId(ov.id);
-                if (!map.getLayer(layId)) {
-                    map.addLayer({
-                        id: layId,
-                        type: 'line',
-                        source: srcId,
-                        'source-layer': ov.sourceLayer,
-                        ...minzoom,
-                        ...filter,
-                        paint: {
-                            'line-color': ov.overlayColor ?? '#e8a020',
-                            'line-width': ov.overlayWidth ?? 1.5,
-                            'line-opacity': ov.overlayOpacity ?? 0.75,
-                        },
-                    });
-                }
-            }
-        }
-    }, [overlays, mapVersion]);
 
     // Sync overlay visibility when hiddenOverlays changes.
     useEffect(() => {

@@ -91,7 +91,7 @@ export default function App() {
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
     const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
-    const [hiddenOverlays, setHiddenOverlays] = useState<string[]>([]);
+    const [rowAccessLevel, setRowAccessLevel] = useState(0); // 0=off, 1=motor, 2=cycle, 3=foot
     const peakDefaultsApplied = useRef(false);
 
     const toggleCategory = useCallback(
@@ -104,10 +104,6 @@ export default function App() {
     );
     const togglePeakCategory = useCallback(
         (c: string) => setHiddenPeakCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
-        [],
-    );
-    const toggleOverlay = useCallback(
-        (id: string) => setHiddenOverlays(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])),
         [],
     );
 
@@ -129,6 +125,11 @@ export default function App() {
     tokenRef.current = token;
 
     const overlays = allSources.filter(s => s.type === 'pmtiles-overlay');
+
+    const hiddenOverlays = useMemo(
+        () => overlays.filter(ov => (ov.minAccessLevel ?? 0) > rowAccessLevel).map(ov => ov.id),
+        [overlays, rowAccessLevel],
+    );
 
     useEffect(() => {
         allSources
@@ -282,8 +283,8 @@ export default function App() {
                 activeId={activeSource?.id ?? ''}
                 sidebarOpen={sidebarOpen}
                 onSelect={setSource}
-                hiddenOverlays={hiddenOverlays}
-                onToggleOverlay={toggleOverlay}
+                rowAccessLevel={rowAccessLevel}
+                onRowAccessChange={setRowAccessLevel}
             />
 
             <button style={styles.hamburger} onClick={() => setSidebarOpen(true)} title="Menu">
