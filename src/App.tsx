@@ -85,6 +85,7 @@ export default function App() {
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
     const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
+    const [hiddenOverlays, setHiddenOverlays] = useState<string[]>([]);
     const peakDefaultsApplied = useRef(false);
 
     const toggleCategory = useCallback(
@@ -97,6 +98,10 @@ export default function App() {
     );
     const togglePeakCategory = useCallback(
         (c: string) => setHiddenPeakCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
+        [],
+    );
+    const toggleOverlay = useCallback(
+        (id: string) => setHiddenOverlays(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])),
         [],
     );
 
@@ -115,9 +120,11 @@ export default function App() {
     const tokenRef = useRef(token);
     tokenRef.current = token;
 
+    const overlays = allSources.filter(s => s.type === 'pmtiles-overlay');
+
     useEffect(() => {
         allSources
-            .filter(s => s.type === 'pmtiles-drive' && s.fileId)
+            .filter(s => (s.type === 'pmtiles-drive' || s.type === 'pmtiles-overlay') && s.fileId)
             .forEach(s => registerDrivePMTiles(s.fileId!, () => tokenRef.current ?? ''));
         if (tracksPmtilesFileId) {
             registerDrivePMTiles(tracksPmtilesFileId, () => tokenRef.current ?? '');
@@ -228,6 +235,7 @@ export default function App() {
                     categories={categories}
                     loadedTracks={loadedTracks}
                     loadedPeaks={loadedPeaks}
+                    overlays={overlays}
                     onBoundsChange={() => {}}
                     onTrackClick={handleTrackClick}
                     onTrackHover={handleTrackHover}
@@ -245,6 +253,7 @@ export default function App() {
                     hiddenCategories={hiddenCategories}
                     hiddenTrackTypes={hiddenTrackTypes}
                     hiddenPeakCategories={hiddenPeakCategories}
+                    hiddenOverlays={hiddenOverlays}
                     baggedSet={baggedSet}
                     flyToBbox={flyToBbox}
                 />
@@ -255,6 +264,8 @@ export default function App() {
                 activeId={activeSource?.id ?? ''}
                 sidebarOpen={sidebarOpen}
                 onSelect={setSource}
+                hiddenOverlays={hiddenOverlays}
+                onToggleOverlay={toggleOverlay}
             />
 
             <button style={styles.hamburger} onClick={() => setSidebarOpen(true)} title="Menu">

@@ -17,13 +17,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+DRIVE_FOLDER = "DoneIt"
+DONEIT_LOCAL = Path(__file__).parent.parent.parent / DRIVE_FOLDER
 GVFS_BASE = Path(f"/run/user/{os.getuid()}/gvfs")
-GPX_CACHE_PATH = Path(__file__).parent / "gpx-cache.json"
 PEAKS_INDEX_NAME = "peaks-index.json"
-COUNTRIES_URL = "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_1_states_provinces.zip"
-COUNTRIES_PATH = Path(__file__).parent.parent.parent / "public" / "ne_110m_countries.geojson"
-ROW_GEOJSON_PATH = Path(__file__).parent / "row.geojson"
+
+BUILD_DIR = Path(__file__).parent / "build"
+BUILD_DIR.mkdir(exist_ok=True)
+DONEIT_LOCAL.mkdir(exist_ok=True)
+(DONEIT_LOCAL / "tracks").mkdir(exist_ok=True)
+(DONEIT_LOCAL / "peaks").mkdir(exist_ok=True)
+
+GPX_CACHE_PATH = BUILD_DIR / "gpx-cache.json"
+ROW_GEOJSON_PATH = BUILD_DIR / "row.geojson"
+ROW_PMTILES_PATH = DONEIT_LOCAL / "row.pmtiles"
 _ROW_BASE_URL = "https://www.rowmaps.com/jsons"
+_ROW_ETAG_PATH = BUILD_DIR / "row-etags.json"
+_ROW_CACHE_DIR = BUILD_DIR / "row-cache"
 _ROW_TYPES = {1: "footpath", 2: "bridleway", 3: "restricted_byway", 4: "byway"}
 _ROW_AUTHORITIES = {
     "B1": "Brecon Beacons National Park",
@@ -358,32 +368,25 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Country lookup
+# Deploy
 # ---------------------------------------------------------------------------
 
-def fetch_countries() -> None:
-    try:
-        import geopandas as gpd  # type: ignore[import]
-    except ImportError:
-        sys.exit("geopandas missing — run via: uv run python build.py")
-    print("Fetching country data from Natural Earth ...")
-    gdf: Any = gpd.read_file(COUNTRIES_URL)
-    gdf = gdf[["name", "geonunit", "admin", "geometry"]]
-    gdf["geometry"] = gdf["geometry"].simplify(0.001, preserve_topology=True)
-    COUNTRIES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    gdf.to_file(COUNTRIES_PATH, driver="GeoJSON")
-    print(f"  {len(gdf)} features written to {COUNTRIES_PATH.name}")
+def deploy_to_drive(pairs: list[tuple[Path, Path]]) -> None:
+    """Copy local DoneIt/ files to GVFS, skipping any whose MD5 already matches."""
+    import hashlib
 
+    def md5(p: Path) -> str:
+        return hashlib.md5(p.read_bytes()).hexdigest()
 
-def load_country_index() -> tuple[Any, Any]:
-    try:
-        import geopandas as gpd  # type: ignore[import]
-    except ImportError:
-        sys.exit("geopandas missing")
-    if not COUNTRIES_PATH.exists():
-        sys.exit(f"Countries file not found at {COUNTRIES_PATH}")
-    gdf: Any = gpd.read_file(COUNTRIES_PATH)
-    return gdf, gdf.sindex
+    for src, dst in pairs:
+        if not src.exists():
+            continue
+        if dst.exists() and md5(src) == md5(dst):
+            print(f"  unchanged: {src.name}")
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(str(src), str(dst))
+        print(f"  deployed:  {src.name}")
 
 
 def _lookup_country(gdf: Any, sindex: Any, lng: float, lat: float) -> str | None:
@@ -776,18 +779,50 @@ def run_build_tracks(
 # ---------------------------------------------------------------------------
 
 def fetch_row_geojson(output_path: Path) -> None:
-    """Download Rights of Way GeoJSON from rowmaps.com and write a merged FeatureCollection."""
+    """Download Rights of Way GeoJSON from rowmaps.com.
+
+    Uses ETags and per-authority cache files to avoid re-downloading unchanged data.
+    Only rewrites output_path when content actually changes, so doit skips build_row_pmtiles
+    when nothing upstream has changed.
+    """
     import urllib.error
     import urllib.request
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def _fetch(code: str, name: str, type_num: int) -> list[dict[str, Any]]:
+    _ROW_CACHE_DIR.mkdir(exist_ok=True)
+
+    # Load saved ETags: {"CODE/type_num": {"etag": "...", "last_modified": "..."}}
+    etags: dict[str, dict[str, str]] = {}
+    if _ROW_ETAG_PATH.exists():
+        try:
+            etags = json.loads(_ROW_ETAG_PATH.read_text())
+        except Exception:
+            pass
+
+    def _fetch_one(code: str, name: str, type_num: int) -> tuple[str, int, str, list[dict[str, Any]], dict[str, str] | None]:
+        """Returns (code, type_num, status, features, new_etag_entry).
+        status is 'changed', 'unchanged', 'notfound', or 'error'.
+        """
         url = f"{_ROW_BASE_URL}/{code}/mutated{type_num}.json"
+        key = f"{code}/{type_num}"
+        cached = etags.get(key, {})
         row_type = _ROW_TYPES[type_num]
+
+        headers: dict[str, str] = {"User-Agent": "doneit-build/1.0"}
+        if cached.get("etag"):
+            headers["If-None-Match"] = cached["etag"]
+        if cached.get("last_modified"):
+            headers["If-Modified-Since"] = cached["last_modified"]
+
         for attempt in range(3):
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": "doneit-build/1.0"})
+                req = urllib.request.Request(url, headers=headers)
                 with urllib.request.urlopen(req, timeout=30) as resp:
+                    new_etag: dict[str, str] = {}
+                    if resp.headers.get("ETag"):
+                        new_etag["etag"] = resp.headers["ETag"]
+                    if resp.headers.get("Last-Modified"):
+                        new_etag["last_modified"] = resp.headers["Last-Modified"]
                     data = json.loads(resp.read())
                 features = data.get("features", [])
                 for f in features:
@@ -795,18 +830,24 @@ def fetch_row_geojson(output_path: Path) -> None:
                     p["row_type"] = row_type
                     p["authority_code"] = code
                     p["authority_name"] = name
-                return features
+                return code, type_num, "changed", features, new_etag or None
             except urllib.error.HTTPError as e:
+                if e.code == 304:
+                    return code, type_num, "unchanged", [], None
                 if e.code == 404:
-                    return []
+                    return code, type_num, "notfound", [], None
                 if attempt < 2:
                     time.sleep(2 ** attempt)
-            except Exception as e:
+                    continue
+                print(f"  warning: {code} {row_type}: HTTP {e.code}", file=sys.stderr)
+                return code, type_num, "error", [], None
+            except Exception as exc:
                 if attempt < 2:
                     time.sleep(2 ** attempt)
-                else:
-                    print(f"  warning: {code} {row_type}: {e}", file=sys.stderr)
-        return []
+                    continue
+                print(f"  warning: {code} {row_type}: {exc}", file=sys.stderr)
+                return code, type_num, "error", [], None
+        return code, type_num, "error", [], None
 
     tasks = [
         (code, name, t)
@@ -814,24 +855,80 @@ def fetch_row_geojson(output_path: Path) -> None:
         for t in _ROW_TYPES
     ]
     total = len(tasks)
-    all_features: list[dict[str, Any]] = []
-    completed = 0
 
-    print(f"Downloading ROW data: {len(_ROW_AUTHORITIES)} authorities × {len(_ROW_TYPES)} types ...")
+    # Accumulate new features per authority; track which ones changed
+    new_features: dict[str, list[dict[str, Any]]] = {}   # code -> features from this run
+    changed_authorities: set[str] = set()
+    new_etags = dict(etags)  # start from existing, update in place
+    completed = 0
+    unchanged = errors = 0
+
+    print(f"Checking ROW data: {len(_ROW_AUTHORITIES)} authorities × {len(_ROW_TYPES)} types ...")
     with ThreadPoolExecutor(max_workers=16) as pool:
-        futures = {pool.submit(_fetch, code, name, t): (code, t) for code, name, t in tasks}
+        futures = {pool.submit(_fetch_one, code, name, t): None for code, name, t in tasks}
         for future in as_completed(futures):
-            code, t = futures[future]
+            code, type_num, status, features, etag_entry = future.result()
             completed += 1
-            features = future.result()
-            all_features.extend(features)
-            if completed % 50 == 0 or completed == total:
-                print(f"  {completed}/{total} done, {len(all_features)} features so far")
+            if status == "changed":
+                new_features.setdefault(code, []).extend(features)
+                changed_authorities.add(code)
+                if etag_entry:
+                    new_etags[f"{code}/{type_num}"] = etag_entry
+            elif status == "unchanged":
+                unchanged += 1
+            elif status == "error":
+                errors += 1
+            if completed % 100 == 0 or completed == total:
+                print(f"  {completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
+
+    if not changed_authorities:
+        print(f"  All {total} files unchanged — skipping output write")
+        _ROW_ETAG_PATH.write_text(json.dumps(new_etags))
+        return
+
+    # Load cached features for unchanged authorities, merge with newly downloaded ones
+    print(f"  {len(changed_authorities)} authorit(ies) changed — rebuilding ...")
+    all_features: list[dict[str, Any]] = []
+    for code in sorted(_ROW_AUTHORITIES):
+        cache_file = _ROW_CACHE_DIR / f"{code}.json"
+        if code in changed_authorities:
+            features = new_features.get(code, [])
+            cache_file.write_text(json.dumps(features, separators=(",", ":")))
+        elif cache_file.exists():
+            try:
+                features = json.loads(cache_file.read_text())
+            except Exception:
+                features = []
+        else:
+            features = []
+        all_features.extend(features)
 
     geojson = {"type": "FeatureCollection", "features": all_features}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(geojson, separators=(",", ":")))
+    _ROW_ETAG_PATH.write_text(json.dumps(new_etags))
     print(f"  Wrote {len(all_features)} ROW features to {output_path.name}")
+
+
+def run_build_row_pmtiles(geojson_path: Path, pmtiles_path: Path) -> None:
+    """Convert row.geojson → row.pmtiles using tippecanoe."""
+    with tempfile.TemporaryDirectory(prefix="doneit-row-") as tmpdir:
+        tmp = Path(tmpdir) / "row.pmtiles"
+        subprocess.run(
+            [
+                "tippecanoe",
+                "-o", str(tmp), "-l", "row",
+                "-Z10", "-z16",
+                "--no-feature-limit", "--no-tile-size-limit",
+                "--simplification=2",
+                "--force",
+                str(geojson_path),
+            ],
+            check=True,
+        )
+        size_mb = tmp.stat().st_size / 1_048_576
+        print(f"  ROW PMTiles: {size_mb:.1f} MB")
+        shutil.copyfile(str(tmp), str(pmtiles_path))
 
 
 def run_build_peaks_pmtiles(

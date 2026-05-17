@@ -23,7 +23,11 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).parent
-BAG_CONFIG_PATH = HERE / ".bag-config.json"
+sys.path.insert(0, str(HERE))
+import pipeline  # noqa: E402
+
+BUILD_DIR = pipeline.BUILD_DIR
+BAG_CONFIG_PATH = BUILD_DIR / ".bag-config.json"
 
 
 def _bag_distance_changed(bag_distance: float) -> bool:
@@ -44,13 +48,15 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "available tasks:\n"
+            "  fetch_row             download ROW GeoJSON from rowmaps.com (ETag-aware, max once/30d)\n"
+            "  build_row_pmtiles     build row.pmtiles and copy to Drive\n"
             "  parse_and_bag_tracks  parse new/changed GPX tracks and detect peak baggings\n"
             "  build_tracks          build tracks.pmtiles and tracks-index.json\n"
             "  build_peaks_pmtiles   build peaks.pmtiles\n"
         ),
     )
     parser.add_argument(
-        "--folder", default="DoneIt", metavar="NAME",
+        "--folder", default=pipeline.DRIVE_FOLDER, metavar="NAME",
         help="Drive folder name to read GPX tracks and peaks from (default: %(default)s)",
     )
     parser.add_argument(
@@ -88,7 +94,7 @@ def main() -> None:
         "DONEIT_BAG_DISTANCE": str(args.bag_distance),
     }
 
-    db_path = HERE / ".doit.db"
+    db_path = BUILD_DIR / ".doit.db"
 
     # Write .bag-config.json so doit detects a bag-distance change via its file dep.
     # The pipeline also reads bag_distance from peaks-index.json to confirm the change.
@@ -96,9 +102,6 @@ def main() -> None:
         _bag_distance_changed(args.bag_distance)
 
     if args.force or args.retrack:
-        sys.path.insert(0, str(HERE))
-        import pipeline  # noqa: PLC0415
-
         cache_path: Path = pipeline.GPX_CACHE_PATH
 
         if args.force:

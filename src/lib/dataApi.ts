@@ -1,7 +1,7 @@
 import * as driveApi from './driveApi';
 import * as localApi from './localDataApi';
 
-const IS_LOCAL = import.meta.env.VITE_LOCAL_MODE === 'true';
+const IS_LOCAL = import.meta.env.MODE === 'localdata';
 
 export const api = IS_LOCAL ? localApi : driveApi;
 

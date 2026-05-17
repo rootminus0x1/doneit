@@ -1,15 +1,17 @@
-# environment
+# environment — no .env files are ever committed
 .env
+.env.*
 
 # python
 .venv
 __pycache__/
 *.pyc
 
-# doit task state
-.doit.db*
-.bag-config.json
-scripts/build-pmtiles/gpx-cache.json
+# local mirror of Google Drive DoneIt folder (built artifacts)
+DoneIt/
+
+# build pipeline intermediates
+scripts/build-pmtiles/build/
 
 # Logs
 logs

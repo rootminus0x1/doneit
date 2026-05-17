@@ -6,12 +6,14 @@ interface Props {
     activeId: string;
     sidebarOpen: boolean;
     onSelect: (id: string) => void;
+    hiddenOverlays: string[];
+    onToggleOverlay: (id: string) => void;
 }
 
 const CARD = 64;
 const STEP = 5; // px offset per stacked card
 
-export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: Props) {
+export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect, hiddenOverlays, onToggleOverlay }: Props) {
     const [open, setOpen] = useState(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -28,14 +30,16 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
     };
     const handleLeave = () => scheduleClose();
 
-    const active = sources.find(s => s.id === activeId) ?? sources[0];
+    const baseSources = sources.filter(s => s.type !== 'pmtiles-overlay');
+    const overlaySources = sources.filter(s => s.type === 'pmtiles-overlay');
+    const active = baseSources.find(s => s.id === activeId) ?? baseSources[0];
     if (!active) return null;
-    const behind = sources.filter(s => s.id !== activeId).slice(0, 2);
+    const behind = baseSources.filter(s => s.id !== activeId).slice(0, 2);
 
     // Click on stack rotates to the next source
     const handleStackClick = () => {
-        const idx = sources.findIndex(s => s.id === activeId);
-        onSelect(sources[(idx + 1) % sources.length].id);
+        const idx = baseSources.findIndex(s => s.id === activeId);
+        onSelect(baseSources[(idx + 1) % baseSources.length].id);
     };
 
     // Container is big enough for all stacked cards (they offset bottom-right)
@@ -51,30 +55,68 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect }: P
                 transition: 'left 0.25s ease',
             }}
         >
-            {/* Styles panel — appears on hover, above the stack */}
+            {/* Panel — appears on hover, above the stack */}
             {open && (
                 <div style={styles.panel} onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
-                    {sources.map(s => (
-                        <button
-                            key={s.id}
-                            style={{
-                                ...styles.option,
-                                outline: s.id === activeId ? '3px solid #1a73e8' : '2px solid transparent',
-                            }}
-                            onClick={() => onSelect(s.id)}
-                        >
-                            <div style={styles.optionThumb}>
-                                <img
-                                    src={`data:image/svg+xml,${encodeURIComponent(s.icon)}`}
-                                    alt=""
-                                    width={48}
-                                    height={48}
-                                    style={{ display: 'block', borderRadius: 6 }}
-                                />
+                    {/* Left column: base map list */}
+                    <div style={styles.column}>
+                        <div style={styles.columnHeader}>Base map</div>
+                        {baseSources.map(s => (
+                            <button
+                                key={s.id}
+                                style={{
+                                    ...styles.option,
+                                    outline: s.id === activeId ? '3px solid #1a73e8' : '2px solid transparent',
+                                }}
+                                onClick={() => onSelect(s.id)}
+                            >
+                                <div style={styles.optionThumb}>
+                                    <img
+                                        src={`data:image/svg+xml,${encodeURIComponent(s.icon)}`}
+                                        alt=""
+                                        width={48}
+                                        height={48}
+                                        style={{ display: 'block', borderRadius: 6 }}
+                                    />
+                                </div>
+                                <span style={styles.optionLabel}>{s.label}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Right column: overlay toggles (only shown when overlays exist) */}
+                    {overlaySources.length > 0 && (
+                        <>
+                            <div style={styles.divider} />
+                            <div style={styles.column}>
+                                <div style={styles.columnHeader}>Overlays</div>
+                                {overlaySources.map(s => {
+                                    const on = !hiddenOverlays.includes(s.id);
+                                    return (
+                                        <button
+                                            key={s.id}
+                                            style={{
+                                                ...styles.overlayRow,
+                                                opacity: on ? 1 : 0.45,
+                                            }}
+                                            onClick={() => onToggleOverlay(s.id)}
+                                        >
+                                            <div
+                                                style={{
+                                                    ...styles.swatch,
+                                                    background: s.overlayColor ?? '#e8a020',
+                                                }}
+                                            />
+                                            <span style={styles.optionLabel}>{s.label}</span>
+                                            <div style={{ ...styles.toggle, background: on ? '#1a73e8' : '#ccc' }}>
+                                                <div style={{ ...styles.toggleThumb, transform: on ? 'translateX(12px)' : 'translateX(1px)' }} />
+                                            </div>
+                                        </button>
+                                    );
+                                })}
                             </div>
-                            <span style={styles.optionLabel}>{s.label}</span>
-                        </button>
-                    ))}
+                        </>
+                    )}
                 </div>
             )}
 
@@ -160,9 +202,29 @@ const styles: Record<string, React.CSSProperties> = {
         boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
         padding: 8,
         display: 'flex',
+        flexDirection: 'row',
+        gap: 0,
+        alignItems: 'flex-start',
+    },
+    column: {
+        display: 'flex',
         flexDirection: 'column',
-        gap: 4,
+        gap: 2,
         minWidth: 150,
+    },
+    columnHeader: {
+        fontSize: 10,
+        fontWeight: 700,
+        color: '#999',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        padding: '2px 8px 4px',
+    },
+    divider: {
+        width: 1,
+        alignSelf: 'stretch',
+        background: '#eee',
+        margin: '0 6px',
     },
     option: {
         display: 'flex',
@@ -187,6 +249,43 @@ const styles: Record<string, React.CSSProperties> = {
         fontSize: 13,
         fontWeight: 500,
         color: '#333',
+        flex: 1,
+    },
+    overlayRow: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        background: 'none',
+        border: 'none',
+        borderRadius: 8,
+        cursor: 'pointer',
+        padding: '6px 8px',
+        textAlign: 'left',
+        width: '100%',
+        transition: 'opacity 0.15s',
+    },
+    swatch: {
+        flexShrink: 0,
+        width: 14,
+        height: 14,
+        borderRadius: 3,
+    },
+    toggle: {
+        flexShrink: 0,
+        width: 26,
+        height: 14,
+        borderRadius: 7,
+        position: 'relative',
+        transition: 'background 0.15s',
+    },
+    toggleThumb: {
+        position: 'absolute',
+        top: 1,
+        width: 12,
+        height: 12,
+        borderRadius: '50%',
+        background: '#fff',
+        transition: 'transform 0.15s',
     },
     stackLabel: {
         marginTop: 4,

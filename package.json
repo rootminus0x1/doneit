@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite --mode localdata",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "data": "uv run --directory scripts/build-pmtiles python build.py",
+    "data:local": "uv run --directory scripts/build-pmtiles python build.py",
+    "data": "uv run --directory scripts/build-pmtiles python build.py deploy",
     "fetch-row": "uv run --directory scripts/build-pmtiles python build.py fetch_row",
     "fmt": "prettier --write \"src/**/*.{ts,tsx}\""
   },

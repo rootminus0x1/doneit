@@ -88,6 +88,7 @@ interface Props {
     categories: TrackCategory[];
     loadedTracks: LoadedTrack[];
     loadedPeaks: LoadedPeaks[];
+    overlays: TileSource[];
     tracksPmtilesFileId?: string;
     peaksPmtilesFileId?: string;
     peakCategories: PeakCategory[];
@@ -108,14 +109,17 @@ interface Props {
     hiddenCategories: string[];
     hiddenTrackTypes: string[];
     hiddenPeakCategories: string[];
+    hiddenOverlays: string[];
 }
 
-// Copies track/peak sources and layers from the previous style into the next one
+// Copies track/peak/overlay sources and layers from the previous style into the next one
 // so they remain visible throughout a style switch.
 const PMTILES_SOURCE = 'tracks-pmtiles';
 const trackPmtilesLayerId = (cat: string) => `tracks-pmtiles-${cat}`;
 const PEAKS_PMTILES_SOURCE = 'peaks-pmtiles';
 const peakPmtilesLayerId = (name: string) => `peaks-pmtiles-symbol-${name}`;
+const overlaySourceId = (id: string) => `overlay-${id}`;
+const overlayLayerId = (id: string) => `overlay-${id}`;
 
 // True on touch-only devices (phones/tablets with no mouse hover support).
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
@@ -143,7 +147,11 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
     if (!prev) return next;
     const customSources: Record<string, SourceSpecification> = {};
     for (const [id, src] of Object.entries(prev.sources ?? {})) {
-        if (id.startsWith('track-') || id.startsWith('peaks-') || id === PMTILES_SOURCE || id === PEAKS_PMTILES_SOURCE) {
+        if (
+            id.startsWith('track-') || id.startsWith('peaks-') ||
+            id === PMTILES_SOURCE || id === PEAKS_PMTILES_SOURCE ||
+            id.startsWith('overlay-')
+        ) {
             customSources[id] = src as SourceSpecification;
         }
     }
@@ -151,7 +159,8 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
         l =>
             l.id.startsWith('track-line-') ||
             l.id.startsWith('peaks-') ||
-            l.id.startsWith('tracks-pmtiles-'),
+            l.id.startsWith('tracks-pmtiles-') ||
+            l.id.startsWith('overlay-'),
     );
     return {
         ...next,
@@ -179,6 +188,7 @@ export function MapView({
     categories,
     loadedTracks,
     loadedPeaks,
+    overlays,
     tracksPmtilesFileId,
     peaksPmtilesFileId,
     peakCategories,
@@ -198,6 +208,7 @@ export function MapView({
     hiddenCategories,
     hiddenTrackTypes,
     hiddenPeakCategories,
+    hiddenOverlays,
     baggedSet,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -626,6 +637,48 @@ export function MapView({
             }
         }
     }, [tracksPmtilesFileId, categories, mapVersion]);
+
+    // Add pmtiles-overlay sources and line layers — one per overlay entry in tile-sources.json.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0) return;
+        for (const ov of overlays) {
+            if (!ov.fileId || !ov.sourceLayer) continue;
+            const srcId = overlaySourceId(ov.id);
+            const layId = overlayLayerId(ov.id);
+            if (!map.getSource(srcId)) {
+                map.addSource(srcId, { type: 'vector', url: `pmtiles://${ov.fileId}` });
+            }
+            if (!map.getLayer(layId)) {
+                map.addLayer({
+                    id: layId,
+                    type: 'line',
+                    source: srcId,
+                    'source-layer': ov.sourceLayer,
+                    minzoom: ov.overlayMinZoom ?? 12,
+                    paint: {
+                        'line-color': ov.overlayColor ?? '#e8a020',
+                        'line-width': ov.overlayWidth ?? 1.5,
+                        'line-opacity': ov.overlayOpacity ?? 0.75,
+                    },
+                    ...(ov.overlayFilter
+                        ? { filter: ['==', ['get', 'row_type'], ov.overlayFilter] as unknown as maplibregl.FilterSpecification }
+                        : {}),
+                });
+            }
+        }
+    }, [overlays, mapVersion]);
+
+    // Sync overlay visibility when hiddenOverlays changes.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        for (const ov of overlays) {
+            const layId = overlayLayerId(ov.id);
+            if (!map.getLayer(layId)) continue;
+            map.setLayoutProperty(layId, 'visibility', hiddenOverlays.includes(ov.id) ? 'none' : 'visible');
+        }
+    }, [overlays, hiddenOverlays, mapVersion]);
 
     // Toggle PMTiles track layer visibility per category; apply track-type filter.
     useEffect(() => {

@@ -5,17 +5,23 @@ export interface TileSource {
     label: string;
     // vector: external MapLibre style URL (Stadia, etc.)
     // raster: XYZ tile URL template
-    // pmtiles-drive: Drive-hosted PMTiles file; styleUrl is a MapLibre style that
-    //   references pmtiles://{fileId} as its vector source — registered via
-    //   registerDrivePMTiles() before setStyle is called
-    type: 'vector' | 'raster' | 'pmtiles-drive';
+    // pmtiles-drive: Drive-hosted PMTiles file used as a base map style
+    // pmtiles-overlay: Drive-hosted PMTiles rendered as a vector overlay on top of the base map
+    type: 'vector' | 'raster' | 'pmtiles-drive' | 'pmtiles-overlay';
     styleUrl?: string;
     tileUrl?: string;
     tileSize?: number;
-    fileId?: string; // Drive file ID of the .pmtiles data file (pmtiles-drive only)
+    fileId?: string;         // Drive file ID — set directly for pmtiles-drive; resolved at startup for pmtiles-overlay
+    filename?: string;       // Drive filename to look up at startup (pmtiles-overlay only)
+    sourceLayer?: string;    // layer name inside the PMTiles (pmtiles-overlay only)
+    overlayColor?: string;   // line colour, default '#e8a020' (pmtiles-overlay only)
+    overlayWidth?: number;   // line width in pixels, default 1.5 (pmtiles-overlay only)
+    overlayOpacity?: number; // opacity 0–1, default 0.75 (pmtiles-overlay only)
+    overlayMinZoom?: number; // hide below this zoom level, default 12 (pmtiles-overlay only)
+    overlayFilter?: string;  // value of 'row_type' property to filter features (pmtiles-overlay only)
     attribution: string;
     thumbColor: string;
-    icon: string; // SVG string shown in the style selector thumbnail
+    icon: string; // SVG string shown in the style selector thumbnail — not used for pmtiles-overlay
 }
 
 export async function loadTileSources(token: string | null): Promise<TileSource[]> {
@@ -28,7 +34,29 @@ export async function loadTileSources(token: string | null): Promise<TileSource[
     if (!Array.isArray(sources) || sources.length === 0) {
         throw new Error('tile-sources.json is empty or not an array');
     }
-    return sources;
+
+    // Resolve Drive filenames to file IDs for pmtiles-overlay entries.
+    // Multiple overlays can share the same filename (e.g. row.pmtiles split by row_type);
+    // each unique filename is looked up once. Overlays whose file isn't on Drive yet are silently dropped.
+    const filenames = [...new Set(
+        sources
+            .filter(s => s.type === 'pmtiles-overlay' && !s.fileId && s.filename)
+            .map(s => s.filename!),
+    )];
+    const fileIdByName: Record<string, string> = {};
+    await Promise.all(filenames.map(async name => {
+        const found = await api.findFileByName(token, name, rootId);
+        if (found) fileIdByName[name] = found.id;
+    }));
+
+    return sources
+        .map(s => {
+            if (s.type !== 'pmtiles-overlay' || s.fileId) return s;
+            if (!s.filename) return null;
+            const id = fileIdByName[s.filename];
+            return id ? { ...s, fileId: id } : null;
+        })
+        .filter((s): s is TileSource => s !== null);
 }
 
 export function buildRasterStyle(source: TileSource): object {

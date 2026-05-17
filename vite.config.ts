@@ -4,15 +4,15 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { readdirSync, statSync, readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 
-// Serves the local data/ directory at /local-data/ with directory listing.
-// Only active in dev mode (configureServer is ignored during build).
+// Serves the local DoneIt/ directory at /local-data/ with directory listing.
+// Only registered when running vite --mode localdata.
 function serveLocalData(): Plugin {
   return {
     name: 'serve-local-data',
     configureServer(server) {
       server.middlewares.use('/local-data', (req, res, next) => {
         const urlPath = decodeURIComponent((req.url ?? '/').replace(/\?.*$/, '')).replace(/^\/+/, '')
-        const fsPath = join(process.cwd(), 'data', urlPath)
+        const fsPath = join(process.cwd(), 'DoneIt', urlPath)
 
         if (!existsSync(fsPath)) {
           res.statusCode = 404
@@ -41,14 +41,14 @@ function serveLocalData(): Plugin {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: '/doneit/',
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [
     react(),
-    serveLocalData(),
+    mode === 'localdata' && serveLocalData(),
     VitePWA({
       registerType: 'autoUpdate',
       manifest: {
@@ -66,4 +66,4 @@ export default defineConfig({
       },
     }),
   ],
-})
+}))

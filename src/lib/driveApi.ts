@@ -1,5 +1,6 @@
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
+export const DRIVE_FOLDER = 'DoneIt';
 
 export interface DriveFile {
     id: string;
@@ -122,7 +123,5 @@ export async function upsertJsonFile(
 export async function getRootFolderId(token: string | null): Promise<string> {
     const res = await request<{ id: string }>(`${DRIVE_API}/files/root?fields=id`, token);
     const driveRootId = res.id;
-    const subFolder = import.meta.env.VITE_DRIVE_FOLDER as string | undefined;
-    if (!subFolder) return driveRootId;
-    return findOrCreateFolder(token, subFolder, driveRootId);
+    return findOrCreateFolder(token, DRIVE_FOLDER, driveRootId);
 }

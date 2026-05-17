@@ -1,6 +1,6 @@
 // Local data adapter — reads from /local-data/ served by the Vite dev plugin.
 // File IDs are relative paths (e.g. "tracks/hiking/activity_123.gpx").
-// Used when VITE_LOCAL_MODE=true; must match the driveApi function signatures.
+// Active when running `yarn dev:local` (vite --mode localdata).
 
 import type { DriveFile } from './driveApi';
 
