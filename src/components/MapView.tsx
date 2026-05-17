@@ -127,9 +127,21 @@ const overlayInnerLayerId = (id: string) => `overlay-${id}-inner`;
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
 const IS_TOUCH = window.matchMedia('(hover: none)').matches;
 
+// Scale peak icons with zoom: small at overview, full-size when zoomed in
+const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15, 1.5] as unknown as maplibregl.ExpressionSpecification;
+
+// Done-tick scales with zoom to stay proportional to the peak icon it overlays
+const DONE_TICK_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 10, 11, 18, 15, 28] as unknown as maplibregl.ExpressionSpecification;
+
+// Overlay line width/opacity scale with zoom: thin and subtle at overview, full-size when zoomed in
+const zoomLineWidth = (base: number): maplibregl.ExpressionSpecification =>
+    ['interpolate', ['linear'], ['zoom'], 7, base * 0.3, 12, base * 0.65, 16, base] as unknown as maplibregl.ExpressionSpecification;
+const zoomLineOpacity = (base: number): maplibregl.ExpressionSpecification =>
+    ['interpolate', ['linear'], ['zoom'], 7, base * 0.35, 12, base * 0.65, 16, base] as unknown as maplibregl.ExpressionSpecification;
+
 const DONE_TICK_LAYOUT = {
     'text-field': '✔',
-    'text-size': 25,
+    'text-size': DONE_TICK_SIZE as unknown as number,
     'text-anchor': 'center' as const,
     'text-offset': [0.15, -0.2] as [number, number],
     'text-allow-overlap': true,
@@ -142,18 +154,7 @@ const DONE_TICK_PAINT = {
     'text-halo-width': 1,
 };
 
-// Scale peak icons with zoom: small at overview, full-size when zoomed in
-const PEAK_ICON_SIZE = [
-    'interpolate',
-    ['linear'],
-    ['zoom'],
-    7,
-    0.4,
-    11,
-    0.9,
-    15,
-    1.5,
-] as unknown as maplibregl.ExpressionSpecification;
+
 
 function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleSpecification): StyleSpecification {
     if (!prev) return next;
@@ -415,8 +416,8 @@ export function MapView({
                         ...minzoom, ...filter,
                         paint: {
                             'line-color': ov.lineStyle.outerColor,
-                            'line-width': ov.lineStyle.outerWidth,
-                            'line-opacity': ov.lineStyle.outerOpacity,
+                            'line-width': zoomLineWidth(ov.lineStyle.outerWidth),
+                            'line-opacity': zoomLineOpacity(ov.lineStyle.outerOpacity),
                         },
                     });
                 }
@@ -426,8 +427,8 @@ export function MapView({
                         ...minzoom, ...filter,
                         paint: {
                             'line-color': ov.lineStyle.innerColor,
-                            'line-width': ov.lineStyle.innerWidth,
-                            'line-opacity': 1,
+                            'line-width': zoomLineWidth(ov.lineStyle.innerWidth),
+                            'line-opacity': zoomLineOpacity(1),
                         },
                     });
                 }
@@ -439,8 +440,8 @@ export function MapView({
                         ...minzoom, ...filter,
                         paint: {
                             'line-color': ov.overlayColor ?? '#e8a020',
-                            'line-width': ov.overlayWidth ?? 1.5,
-                            'line-opacity': ov.overlayOpacity ?? 0.75,
+                            'line-width': zoomLineWidth(ov.overlayWidth ?? 1.5),
+                            'line-opacity': zoomLineOpacity(ov.overlayOpacity ?? 0.75),
                         },
                     });
                 }
@@ -513,6 +514,53 @@ export function MapView({
             }
         }
     }, [loadedTracks, categories, mapVersion]);
+
+    // Sync PMTiles tracks overlay — one layer per category so dashArray can vary.
+    // Defined before peak effects so PMTiles tracks render below peaks in MapLibre's layer order.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0 || !tracksPmtilesFileId) return;
+
+        if (!map.getSource(PMTILES_SOURCE)) {
+            map.addSource(PMTILES_SOURCE, {
+                type: 'vector',
+                url: `pmtiles://${tracksPmtilesFileId}`,
+            });
+        }
+
+        for (const cat of categories) {
+            const lid = trackPmtilesLayerId(cat.name);
+            if (map.getLayer(lid)) continue;
+            map.addLayer({
+                id: lid,
+                type: 'line',
+                source: PMTILES_SOURCE,
+                'source-layer': 'tracks',
+                filter: ['==', ['get', 'category'], cat.name] as unknown as maplibregl.FilterSpecification,
+                paint: {
+                    'line-color': cat.color,
+                    'line-width': cat.width,
+                    'line-opacity': cat.opacity,
+                    ...(cat.dashArray ? { 'line-dasharray': cat.dashArray } : {}),
+                },
+            });
+            map.on('click', lid, e => {
+                const props = e.features?.[0]?.properties;
+                if (props) onTrackClickRef.current(buildTrackPopup(props));
+            });
+            if (!IS_TOUCH) {
+                map.on('mouseenter', lid, e => {
+                    map.getCanvas().style.cursor = 'pointer';
+                    const props = e.features?.[0]?.properties;
+                    if (props) onTrackHoverRef.current(buildTrackPopup(props));
+                });
+                map.on('mouseleave', lid, () => {
+                    map.getCanvas().style.cursor = '';
+                    onTrackHoverRef.current(null);
+                });
+            }
+        }
+    }, [tracksPmtilesFileId, categories, mapVersion]);
 
     // Register peak icon images — must run before layer effects and after every style reload
     // (setStyle clears all custom images from the map)
@@ -710,52 +758,6 @@ export function MapView({
             ] as unknown as maplibregl.FilterSpecification);
         }
     }, [baggedSet, peakCategories, peaksPmtilesFileId, mapVersion]);
-
-    // Sync PMTiles tracks overlay — one layer per category so dashArray can vary.
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || mapVersion === 0 || !tracksPmtilesFileId) return;
-
-        if (!map.getSource(PMTILES_SOURCE)) {
-            map.addSource(PMTILES_SOURCE, {
-                type: 'vector',
-                url: `pmtiles://${tracksPmtilesFileId}`,
-            });
-        }
-
-        for (const cat of categories) {
-            const lid = trackPmtilesLayerId(cat.name);
-            if (map.getLayer(lid)) continue;
-            map.addLayer({
-                id: lid,
-                type: 'line',
-                source: PMTILES_SOURCE,
-                'source-layer': 'tracks',
-                filter: ['==', ['get', 'category'], cat.name] as unknown as maplibregl.FilterSpecification,
-                paint: {
-                    'line-color': cat.color,
-                    'line-width': cat.width,
-                    'line-opacity': cat.opacity,
-                    ...(cat.dashArray ? { 'line-dasharray': cat.dashArray } : {}),
-                },
-            });
-            map.on('click', lid, e => {
-                const props = e.features?.[0]?.properties;
-                if (props) onTrackClickRef.current(buildTrackPopup(props));
-            });
-            if (!IS_TOUCH) {
-                map.on('mouseenter', lid, e => {
-                    map.getCanvas().style.cursor = 'pointer';
-                    const props = e.features?.[0]?.properties;
-                    if (props) onTrackHoverRef.current(buildTrackPopup(props));
-                });
-                map.on('mouseleave', lid, () => {
-                    map.getCanvas().style.cursor = '';
-                    onTrackHoverRef.current(null);
-                });
-            }
-        }
-    }, [tracksPmtilesFileId, categories, mapVersion]);
 
     // Sync overlay visibility when hiddenOverlays changes.
     useEffect(() => {
