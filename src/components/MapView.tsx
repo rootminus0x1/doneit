@@ -119,7 +119,9 @@ const trackPmtilesLayerId = (cat: string) => `tracks-pmtiles-${cat}`;
 const PEAKS_PMTILES_SOURCE = 'peaks-pmtiles';
 const peakPmtilesLayerId = (name: string) => `peaks-pmtiles-symbol-${name}`;
 const overlaySourceId = (id: string) => `overlay-${id}`;
-const overlayLayerId = (id: string) => `overlay-${id}`;
+const overlayLayerId = (id: string) => `overlay-${id}`;       // single-color (no lineStyle)
+const overlayOuterLayerId = (id: string) => `overlay-${id}-outer`;
+const overlayInnerLayerId = (id: string) => `overlay-${id}-inner`;
 
 // True on touch-only devices (phones/tablets with no mouse hover support).
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
@@ -639,32 +641,60 @@ export function MapView({
     }, [tracksPmtilesFileId, categories, mapVersion]);
 
     // Add pmtiles-overlay sources and line layers — one per overlay entry in tile-sources.json.
+    // Overlays with lineStyle get two stacked layers (outer halo + inner colour);
+    // overlays without lineStyle get a single layer.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || mapVersion === 0) return;
         for (const ov of overlays) {
             if (!ov.fileId || !ov.sourceLayer) continue;
             const srcId = overlaySourceId(ov.id);
-            const layId = overlayLayerId(ov.id);
             if (!map.getSource(srcId)) {
                 map.addSource(srcId, { type: 'vector', url: `pmtiles://${ov.fileId}` });
             }
-            if (!map.getLayer(layId)) {
-                map.addLayer({
-                    id: layId,
-                    type: 'line',
-                    source: srcId,
-                    'source-layer': ov.sourceLayer,
-                    minzoom: ov.overlayMinZoom ?? 12,
-                    paint: {
-                        'line-color': ov.overlayColor ?? '#e8a020',
-                        'line-width': ov.overlayWidth ?? 1.5,
-                        'line-opacity': ov.overlayOpacity ?? 0.75,
-                    },
-                    ...(ov.overlayFilter
-                        ? { filter: ['==', ['get', 'row_type'], ov.overlayFilter] as unknown as maplibregl.FilterSpecification }
-                        : {}),
-                });
+            const filter = ov.overlayFilter
+                ? { filter: ['==', ['get', 'row_type'], ov.overlayFilter] as unknown as maplibregl.FilterSpecification }
+                : {};
+            const minzoom = ov.overlayMinZoom !== undefined ? { minzoom: ov.overlayMinZoom } : {};
+
+            if (ov.lineStyle) {
+                const outerId = overlayOuterLayerId(ov.id);
+                const innerId = overlayInnerLayerId(ov.id);
+                if (!map.getLayer(outerId)) {
+                    map.addLayer({
+                        id: outerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
+                        ...minzoom, ...filter,
+                        paint: {
+                            'line-color': ov.lineStyle.outerColor,
+                            'line-width': ov.lineStyle.outerWidth,
+                            'line-opacity': ov.lineStyle.outerOpacity,
+                        },
+                    });
+                }
+                if (!map.getLayer(innerId)) {
+                    map.addLayer({
+                        id: innerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
+                        ...minzoom, ...filter,
+                        paint: {
+                            'line-color': ov.lineStyle.innerColor,
+                            'line-width': ov.lineStyle.innerWidth,
+                            'line-opacity': 1,
+                        },
+                    });
+                }
+            } else {
+                const layId = overlayLayerId(ov.id);
+                if (!map.getLayer(layId)) {
+                    map.addLayer({
+                        id: layId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
+                        ...minzoom, ...filter,
+                        paint: {
+                            'line-color': ov.overlayColor ?? '#e8a020',
+                            'line-width': ov.overlayWidth ?? 1.5,
+                            'line-opacity': ov.overlayOpacity ?? 0.75,
+                        },
+                    });
+                }
             }
         }
     }, [overlays, mapVersion]);
@@ -674,9 +704,16 @@ export function MapView({
         const map = mapRef.current;
         if (!map) return;
         for (const ov of overlays) {
-            const layId = overlayLayerId(ov.id);
-            if (!map.getLayer(layId)) continue;
-            map.setLayoutProperty(layId, 'visibility', hiddenOverlays.includes(ov.id) ? 'none' : 'visible');
+            const vis = hiddenOverlays.includes(ov.id) ? 'none' : 'visible';
+            if (ov.lineStyle) {
+                const outerId = overlayOuterLayerId(ov.id);
+                const innerId = overlayInnerLayerId(ov.id);
+                if (map.getLayer(outerId)) map.setLayoutProperty(outerId, 'visibility', vis);
+                if (map.getLayer(innerId)) map.setLayoutProperty(innerId, 'visibility', vis);
+            } else {
+                const layId = overlayLayerId(ov.id);
+                if (map.getLayer(layId)) map.setLayoutProperty(layId, 'visibility', vis);
+            }
         }
     }, [overlays, hiddenOverlays, mapVersion]);
 

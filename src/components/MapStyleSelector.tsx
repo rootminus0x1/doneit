@@ -1,19 +1,20 @@
 import { useState, useRef } from 'react';
 import type { TileSource } from '../lib/tileConfig';
+import { RowAccessSlider } from './RowAccessSlider';
 
 interface Props {
     sources: TileSource[];
     activeId: string;
     sidebarOpen: boolean;
     onSelect: (id: string) => void;
-    hiddenOverlays: string[];
-    onToggleOverlay: (id: string) => void;
+    rowAccessLevel: number;
+    onRowAccessChange: (value: number) => void;
 }
 
 const CARD = 64;
 const STEP = 5; // px offset per stacked card
 
-export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect, hiddenOverlays, onToggleOverlay }: Props) {
+export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect, rowAccessLevel, onRowAccessChange }: Props) {
     const [open, setOpen] = useState(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -84,36 +85,13 @@ export function MapStyleSelector({ sources, activeId, sidebarOpen, onSelect, hid
                         ))}
                     </div>
 
-                    {/* Right column: overlay toggles (only shown when overlays exist) */}
+                    {/* Right column: ROW access slider (only shown when overlays exist) */}
                     {overlaySources.length > 0 && (
                         <>
                             <div style={styles.divider} />
-                            <div style={styles.column}>
-                                <div style={styles.columnHeader}>Overlays</div>
-                                {overlaySources.map(s => {
-                                    const on = !hiddenOverlays.includes(s.id);
-                                    return (
-                                        <button
-                                            key={s.id}
-                                            style={{
-                                                ...styles.overlayRow,
-                                                opacity: on ? 1 : 0.45,
-                                            }}
-                                            onClick={() => onToggleOverlay(s.id)}
-                                        >
-                                            <div
-                                                style={{
-                                                    ...styles.swatch,
-                                                    background: s.overlayColor ?? '#e8a020',
-                                                }}
-                                            />
-                                            <span style={styles.optionLabel}>{s.label}</span>
-                                            <div style={{ ...styles.toggle, background: on ? '#1a73e8' : '#ccc' }}>
-                                                <div style={{ ...styles.toggleThumb, transform: on ? 'translateX(12px)' : 'translateX(1px)' }} />
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                            <div style={{ ...styles.column, minWidth: 130 }}>
+                                <div style={styles.columnHeader}>Rights of Way</div>
+                                <RowAccessSlider value={rowAccessLevel} onChange={onRowAccessChange} />
                             </div>
                         </>
                     )}

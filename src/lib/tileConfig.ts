@@ -1,5 +1,13 @@
 import { api, isReady } from './dataApi';
 
+export interface LineStyle {
+    outerColor: string;
+    outerWidth: number;
+    outerOpacity: number;
+    innerColor: string;
+    innerWidth: number;
+}
+
 export interface TileSource {
     id: string;
     label: string;
@@ -11,14 +19,16 @@ export interface TileSource {
     styleUrl?: string;
     tileUrl?: string;
     tileSize?: number;
-    fileId?: string;         // Drive file ID — set directly for pmtiles-drive; resolved at startup for pmtiles-overlay
-    filename?: string;       // Drive filename to look up at startup (pmtiles-overlay only)
-    sourceLayer?: string;    // layer name inside the PMTiles (pmtiles-overlay only)
-    overlayColor?: string;   // line colour, default '#e8a020' (pmtiles-overlay only)
-    overlayWidth?: number;   // line width in pixels, default 1.5 (pmtiles-overlay only)
-    overlayOpacity?: number; // opacity 0–1, default 0.75 (pmtiles-overlay only)
-    overlayMinZoom?: number; // hide below this zoom level, default 12 (pmtiles-overlay only)
-    overlayFilter?: string;  // value of 'row_type' property to filter features (pmtiles-overlay only)
+    fileId?: string;          // Drive file ID — set directly for pmtiles-drive; resolved at startup for pmtiles-overlay
+    filename?: string;        // Drive filename to look up at startup (pmtiles-overlay only)
+    sourceLayer?: string;     // layer name inside the PMTiles (pmtiles-overlay only)
+    overlayColor?: string;    // single-color line colour (pmtiles-overlay without lineStyle)
+    overlayWidth?: number;    // single-color line width in pixels (pmtiles-overlay without lineStyle)
+    overlayOpacity?: number;  // single-color opacity 0–1 (pmtiles-overlay without lineStyle)
+    overlayMinZoom?: number;  // hide below this zoom level when set (pmtiles-overlay only)
+    overlayFilter?: string;   // value of 'row_type' property to filter features (pmtiles-overlay only)
+    lineStyle?: LineStyle;    // two-color cased line; when present, overrides overlayColor/Width/Opacity
+    minAccessLevel?: number;  // 1-3: minimum ROW access slider position at which this overlay is shown
     attribution: string;
     thumbColor: string;
     icon: string; // SVG string shown in the style selector thumbnail — not used for pmtiles-overlay
