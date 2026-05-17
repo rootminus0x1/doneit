@@ -16,6 +16,12 @@ Do not swallow errors or substitute placeholder data when something fails to loa
 ### GPX/GeoJSON display vs PMTiles display are separate concerns
 GPX files (loaded as GeoJSON) are always displayed as-is — no visibility toggling, no filtering, no done overlays, no category controls. They are a raw fallback for data not yet in the PMTiles build. PMTiles layers are the only layers that support toggling (category visibility, done-peak overlay, activity-type filter). Never add PMTiles-style controls or behaviour to GeoJSON layers, and never try to make the two display paths behave the same.
 
+### No side effects at module import time
+
+Python modules in `scripts/build-pmtiles/` must not perform I/O (filesystem, network, subprocess) at module level. Side-effect-free constants (`Path` objects, dicts, strings) are fine. Any operation that creates directories, reads files, or makes network calls must be placed in a named function that is called explicitly by the entry point (`dodo.py`, `build.py`).
+
+Reason: modules are imported in tests; side effects at import time contaminate the test environment, create spurious directories, and make tests order-dependent.
+
 ### Questions vs instructions
 When a message ends with "?", it is a question to be answered in the reply — not an instruction to act on. Answer it before doing anything else, and do not treat it as a directive to change code or behaviour.
 
@@ -52,7 +58,7 @@ No `.env` files of any kind are committed. Locally, all env vars (just `VITE_GOO
 
 ### Local development mode
 
-`yarn dev:local` runs Vite with `--mode localdata`. In this mode the app reads data from the local `drive/` folder (served as static files by the Vite dev server) instead of the Drive API. No sign-in required. The `drive/` folder must be populated first by running `yarn data:local`.
+`yarn dev:local` runs Vite with `--mode localdata`. In this mode the app reads data from the local `DoneIt/` folder (served at `/local-data/` by a Vite dev plugin in `vite.config.ts`) instead of the Drive API. No sign-in required. `DoneIt/` must be populated first by running `yarn data:local`.
 
 `yarn dev` runs Vite in the default mode and reads all data from Google Drive (sign-in required).
 

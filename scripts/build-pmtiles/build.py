@@ -83,6 +83,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--offline", action="store_true",
+        help=(
+            "skip all network downloads (e.g. fetch_row); uses existing local files. "
+            "By default the pipeline auto-detects connectivity and skips downloads when offline."
+        ),
+    )
+    parser.add_argument(
         "tasks", nargs="*",
         help="doit task(s) to run (default: build_tracks build_peaks_pmtiles)",
     )
@@ -93,6 +100,8 @@ def main() -> None:
         "DONEIT_FOLDER": args.folder,
         "DONEIT_BAG_DISTANCE": str(args.bag_distance),
     }
+    if args.offline:
+        env["DONEIT_OFFLINE"] = "1"
 
     db_path = BUILD_DIR / ".doit.db"
 

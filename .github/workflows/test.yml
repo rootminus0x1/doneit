@@ -1,0 +1,44 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    name: Tests + coverage regression check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install JS dependencies
+        run: yarn install
+
+      - name: Run all tests and generate coverage
+        run: yarn test
+
+      - name: Check for changed repo files
+        shell: bash
+        run: |
+          # if there are any added or changed (excluding staged) files then list them and fail
+          if ! git diff --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+            git status --short
+            git diff | head -100
+            echo "Git repo has changed, either correctly fix those files locally or .gitignore them"; exit 1;
+          fi
+        id: git-diffs

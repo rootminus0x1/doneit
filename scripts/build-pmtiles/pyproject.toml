@@ -6,4 +6,16 @@ dependencies = [
     "gpxpy>=1.6",
     "geopandas>=1.0",
     "doit>=0.36",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+relative_files = true
+
+[tool.coverage.json]
+output = "../../regression/coverage-py.json"

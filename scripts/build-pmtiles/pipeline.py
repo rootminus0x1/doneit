@@ -23,10 +23,6 @@ GVFS_BASE = Path(f"/run/user/{os.getuid()}/gvfs")
 PEAKS_INDEX_NAME = "peaks-index.json"
 
 BUILD_DIR = Path(__file__).parent / "build"
-BUILD_DIR.mkdir(exist_ok=True)
-DONEIT_LOCAL.mkdir(exist_ok=True)
-(DONEIT_LOCAL / "tracks").mkdir(exist_ok=True)
-(DONEIT_LOCAL / "peaks").mkdir(exist_ok=True)
 
 GPX_CACHE_PATH = BUILD_DIR / "gpx-cache.json"
 ROW_GEOJSON_PATH = BUILD_DIR / "row.geojson"
@@ -180,6 +176,28 @@ _ROW_AUTHORITIES = {
     "YT": "Slough",
     "YY": "Stockport",
 }
+
+
+# ---------------------------------------------------------------------------
+# Startup helpers (called explicitly by dodo.py, never at import time)
+# ---------------------------------------------------------------------------
+
+def ensure_build_dirs() -> None:
+    """Create local build/output directories. Must be called before any file I/O."""
+    BUILD_DIR.mkdir(exist_ok=True)
+    DONEIT_LOCAL.mkdir(exist_ok=True)
+    (DONEIT_LOCAL / "tracks").mkdir(exist_ok=True)
+    (DONEIT_LOCAL / "peaks").mkdir(exist_ok=True)
+
+
+def is_online(timeout: float = 3.0) -> bool:
+    """Return True if the internet is reachable (TCP probe to Google DNS)."""
+    import socket
+    try:
+        socket.create_connection(("8.8.8.8", 53), timeout=timeout)
+        return True
+    except OSError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -784,10 +802,26 @@ def fetch_row_geojson(output_path: Path) -> None:
     Uses ETags and per-authority cache files to avoid re-downloading unchanged data.
     Only rewrites output_path when content actually changes, so doit skips build_row_pmtiles
     when nothing upstream has changed.
+
+    Skips downloading (uses existing file) when DONEIT_OFFLINE=1 or no internet is detected.
+    Exits with an error if the output file does not exist and downloading is not possible.
     """
     import urllib.error
     import urllib.request
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    offline = os.environ.get("DONEIT_OFFLINE") == "1"
+    if offline:
+        if output_path.exists():
+            print("  Offline mode — skipping ROW fetch, using existing file", file=sys.stderr)
+            return
+        sys.exit("--offline set but row.geojson does not exist; run without --offline first to fetch it")
+
+    if not is_online():
+        if output_path.exists():
+            print("  No internet connection — skipping ROW fetch, using existing file", file=sys.stderr)
+            return
+        sys.exit("No internet connection and row.geojson does not exist; connect to the internet and retry")
 
     _ROW_CACHE_DIR.mkdir(exist_ok=True)
 

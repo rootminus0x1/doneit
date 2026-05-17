@@ -12,7 +12,10 @@
     "data:local": "uv run --directory scripts/build-pmtiles python build.py",
     "data": "uv run --directory scripts/build-pmtiles python build.py deploy",
     "fetch-row": "uv run --directory scripts/build-pmtiles python build.py fetch_row",
-    "fmt": "prettier --write \"src/**/*.{ts,tsx}\""
+    "fmt": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "test:app": "vitest run --coverage && cp coverage/lcov.info lcov.info && cp coverage/coverage-app.json regression/coverage-app.json",
+    "test:py": "uv run --directory scripts/build-pmtiles pytest --cov=pipeline --cov-report=html --cov-report=term-missing --cov-report=json --cov-report=lcov:../../lcov-py.info",
+    "test": "yarn test:app && yarn test:py"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.5",
@@ -28,16 +31,19 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^3.0.0",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
+    "jsdom": "^26.0.0",
     "prettier": "^3.8.3",
     "tsx": "^4.21.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
-    "vite-plugin-pwa": "^1.3.0"
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^3.0.0"
   },
   "packageManager": "yarn@4.14.1"
 }

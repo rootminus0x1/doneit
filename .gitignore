@@ -13,6 +13,13 @@ DoneIt/
 # build pipeline intermediates
 scripts/build-pmtiles/build/
 
+# generated coverage outputs (baselines live in regression/ instead)
+coverage/
+scripts/build-pmtiles/.coverage
+scripts/build-pmtiles/htmlcov/
+lcov.info
+lcov-py.info
+
 # Logs
 logs
 *.log

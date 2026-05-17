@@ -26,6 +26,8 @@ from typing import Any
 
 import pipeline
 
+pipeline.ensure_build_dirs()
+
 DOIT_CONFIG = {
     "verbosity": 2,
     "dep_file": str(pipeline.BUILD_DIR / ".doit.db"),
@@ -193,14 +195,22 @@ def task_deploy() -> dict[str, Any]:
         ]
 
     _stamp = pipeline.BUILD_DIR / ".deploy.stamp"
-    local_files = [str(p) for p, _ in pairs if p.exists()]
+
+    def _is_current():
+        if not _stamp.exists():
+            return False
+        stamp_mtime = _stamp.stat().st_mtime
+        return all(
+            not src.exists() or src.stat().st_mtime <= stamp_mtime
+            for src, _ in pairs
+        )
 
     def action():
         pipeline.deploy_to_drive(pairs)
         _stamp.touch()
 
     return {
-        "file_dep": local_files,
+        "uptodate": [_is_current],
         "targets": [str(_stamp)],
         "actions": [action],
         "task_dep": ["build_row_pmtiles", "build_tracks", "build_peaks_pmtiles"],

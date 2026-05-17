@@ -5,7 +5,9 @@
       "WebFetch(domain:pydoit.org)",
       "Bash(yarn tsc *)",
       "WebFetch(domain:www.walkhighlands.co.uk)",
-      "WebFetch(domain:www.rowmaps.com)"
+      "WebFetch(domain:www.rowmaps.com)",
+      "Bash(yarn test:py)",
+      "Bash(yarn test *)"
     ]
   }
 }
