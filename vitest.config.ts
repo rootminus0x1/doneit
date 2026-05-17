@@ -6,7 +6,7 @@ export default defineConfig({
         include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
         coverage: {
             provider: 'v8',
-            reporter: ['text', 'lcov', ['json-summary', { file: 'coverage-app.json' }]],
+            reporter: ['text', ['text', { file: 'coverage-app.txt' }], 'lcov'],
             reportsDirectory: 'coverage',
             include: ['src/lib/**/*.ts'],
             exclude: ['src/lib/driveApi.ts'],

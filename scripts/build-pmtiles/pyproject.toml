@@ -16,6 +16,3 @@ pythonpath = ["."]
 
 [tool.coverage.run]
 relative_files = true
-
-[tool.coverage.json]
-output = "../../regression/coverage-py.json"

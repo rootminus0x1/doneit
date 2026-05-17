@@ -17,6 +17,7 @@ scripts/build-pmtiles/build/
 coverage/
 scripts/build-pmtiles/.coverage
 scripts/build-pmtiles/htmlcov/
+scripts/build-pmtiles/coverage.json
 lcov.info
 lcov-py.info
 
