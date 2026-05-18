@@ -24,6 +24,7 @@ interface Props {
     trackCount: number;
     indexGenerated: string | null;
     unindexedCount: number;
+    zoom: number;
 }
 
 export function Sidebar({
@@ -42,6 +43,7 @@ export function Sidebar({
     trackCount,
     indexGenerated,
     unindexedCount,
+    zoom,
 }: Props) {
     return (
         <>
@@ -139,6 +141,7 @@ export function Sidebar({
                                 {unindexedCount} new track{unindexedCount !== 1 ? 's' : ''} (GPX, not yet in PMTiles)
                             </p>
                         )}
+                        <p style={styles.meta}>Zoom: {zoom.toFixed(1)}</p>
                     </Section>
                 </div>
             </div>

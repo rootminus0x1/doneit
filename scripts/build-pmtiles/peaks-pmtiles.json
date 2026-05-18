@@ -1,0 +1,6 @@
+{
+  "layer": "peaks",
+  "min_zoom": 0,
+  "max_zoom": 14,
+  "extra_args": ["-r1", "--no-feature-limit", "--no-tile-size-limit", "--force"]
+}

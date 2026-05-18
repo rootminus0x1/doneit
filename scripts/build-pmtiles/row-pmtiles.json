@@ -1,0 +1,6 @@
+{
+  "layer": "row",
+  "min_zoom": 0,
+  "max_zoom": 16,
+  "extra_args": ["--no-feature-limit", "--no-tile-size-limit", "--simplification=2", "--force"]
+}

@@ -45,28 +45,47 @@ export async function loadTileSources(token: string | null): Promise<TileSource[
         throw new Error('tile-sources.json is empty or not an array');
     }
 
+    const overlayEntries = sources.filter(s => s.type === 'pmtiles-overlay');
+    console.log(`[tileConfig] tile-sources.json: ${sources.length} total, ${overlayEntries.length} overlay(s):`,
+        overlayEntries.map(s => ({ id: s.id, filename: s.filename, fileId: s.fileId ?? '(none)', hasLineStyle: !!s.lineStyle, minAccessLevel: s.minAccessLevel })),
+    );
+
     // Resolve Drive filenames to file IDs for pmtiles-overlay entries.
     // Multiple overlays can share the same filename (e.g. row.pmtiles split by row_type);
-    // each unique filename is looked up once. Overlays whose file isn't on Drive yet are silently dropped.
+    // each unique filename is looked up once. Overlays whose file isn't on Drive yet are dropped.
     const filenames = [
         ...new Set(sources.filter(s => s.type === 'pmtiles-overlay' && !s.fileId && s.filename).map(s => s.filename!)),
     ];
+    console.log(`[tileConfig] Resolving ${filenames.length} overlay filename(s) in rootId="${rootId}":`, filenames);
     const fileIdByName: Record<string, string> = {};
     await Promise.all(
         filenames.map(async name => {
             const found = await api.findFileByName(token, name, rootId);
-            if (found) fileIdByName[name] = found.id;
+            if (found) {
+                fileIdByName[name] = found.id;
+                console.log(`[tileConfig] ✓ "${name}" → fileId ${found.id}`);
+            } else {
+                console.warn(`[tileConfig] ✗ "${name}" not found in Drive folder (rootId="${rootId}") — overlay(s) using this file will be dropped`);
+            }
         }),
     );
 
-    return sources
+    const resolved = sources
         .map(s => {
             if (s.type !== 'pmtiles-overlay' || s.fileId) return s;
             if (!s.filename) return null;
             const id = fileIdByName[s.filename];
-            return id ? { ...s, fileId: id } : null;
+            if (!id) {
+                console.warn(`[tileConfig] Dropping overlay "${s.id}": filename "${s.filename}" was not resolved`);
+                return null;
+            }
+            return { ...s, fileId: id };
         })
         .filter((s): s is TileSource => s !== null);
+
+    const resolvedOverlays = resolved.filter(s => s.type === 'pmtiles-overlay');
+    console.log(`[tileConfig] ${resolvedOverlays.length}/${overlayEntries.length} overlay(s) resolved with fileId`);
+    return resolved;
 }
 
 export function buildRasterStyle(source: TileSource): object {

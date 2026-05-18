@@ -133,11 +133,10 @@ const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15
 // Done-tick scales with zoom to stay proportional to the peak icon it overlays
 const DONE_TICK_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 10, 11, 18, 15, 28] as unknown as maplibregl.ExpressionSpecification;
 
-// Overlay line width/opacity scale with zoom: thin and subtle at overview, full-size when zoomed in
+// Overlay line width scales with zoom: minimum at overview, full-size when zoomed in.
+// Anchored at zoom 0 so extrapolation below the first stop never reaches 0.
 const zoomLineWidth = (base: number): maplibregl.ExpressionSpecification =>
-    ['interpolate', ['linear'], ['zoom'], 7, base * 0.3, 12, base * 0.65, 16, base] as unknown as maplibregl.ExpressionSpecification;
-const zoomLineOpacity = (base: number): maplibregl.ExpressionSpecification =>
-    ['interpolate', ['linear'], ['zoom'], 7, base * 0.35, 12, base * 0.65, 16, base] as unknown as maplibregl.ExpressionSpecification;
+    ['interpolate', ['linear'], ['zoom'], 0, base * 0.3, 12, base * 0.65, 16, base] as unknown as maplibregl.ExpressionSpecification;
 
 const DONE_TICK_LAYOUT = {
     'text-field': '✔',
@@ -295,6 +294,7 @@ export function MapView({
         });
 
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+        map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right');
         mapRef.current = map;
         loadedSourceIdRef.current = source.id;
 
@@ -320,7 +320,13 @@ export function MapView({
             if (!styleLoadedRef.current) {
                 onErrorRef.current(e.error?.message ?? 'Map error');
             } else {
-                console.error('[MapView]', e.error?.message ?? e);
+                const msg = e.error?.message ?? String(e);
+                // Always log; highlight overlay errors so they stand out in the console
+                if (msg.includes('overlay-') || msg.includes('pmtiles')) {
+                    console.error('[MapView overlay ERROR]', msg, e);
+                } else {
+                    console.error('[MapView]', msg);
+                }
             }
         });
 
@@ -417,7 +423,7 @@ export function MapView({
                         paint: {
                             'line-color': ov.lineStyle.outerColor,
                             'line-width': zoomLineWidth(ov.lineStyle.outerWidth),
-                            'line-opacity': zoomLineOpacity(ov.lineStyle.outerOpacity),
+                            'line-opacity': ov.lineStyle.outerOpacity,
                         },
                     });
                 }
@@ -428,7 +434,7 @@ export function MapView({
                         paint: {
                             'line-color': ov.lineStyle.innerColor,
                             'line-width': zoomLineWidth(ov.lineStyle.innerWidth),
-                            'line-opacity': zoomLineOpacity(1),
+                            'line-opacity': 1,
                         },
                     });
                 }
@@ -441,7 +447,7 @@ export function MapView({
                         paint: {
                             'line-color': ov.overlayColor ?? '#e8a020',
                             'line-width': zoomLineWidth(ov.overlayWidth ?? 1.5),
-                            'line-opacity': zoomLineOpacity(ov.overlayOpacity ?? 0.75),
+                            'line-opacity': ov.overlayOpacity ?? 0.75,
                         },
                     });
                 }

@@ -18,6 +18,18 @@ from pathlib import Path
 from typing import Any
 
 DRIVE_FOLDER = "DoneIt"
+
+# Per-artifact tippecanoe configuration files.  Changing a config file causes doit to
+# rebuild only that artifact; editing pipeline.py comments does not trigger any rebuild.
+ROW_PMTILES_CONFIG    = Path(__file__).parent / "row-pmtiles.json"
+TRACKS_PMTILES_CONFIG = Path(__file__).parent / "tracks-pmtiles.json"
+PEAKS_PMTILES_CONFIG  = Path(__file__).parent / "peaks-pmtiles.json"
+BAG_CONFIG            = Path(__file__).parent / "bag-config.json"
+
+
+def _load_pmtiles_config(path: Path) -> dict[str, Any]:
+    with open(path) as f:
+        return json.load(f)  # type: ignore[no-any-return]
 DONEIT_LOCAL = Path(__file__).parent.parent.parent / DRIVE_FOLDER
 GVFS_BASE = Path(f"/run/user/{os.getuid()}/gvfs")
 PEAKS_INDEX_NAME = "peaks-index.json"
@@ -767,12 +779,14 @@ def run_build_tracks(
                 print(line, file=sys.stderr)
 
         pmtiles_tmp = tmp / "tracks.pmtiles"
+        cfg = _load_pmtiles_config(TRACKS_PMTILES_CONFIG)
         print(f"Running tippecanoe for {total} track(s) ...")
         subprocess.run(
             [
-                "tippecanoe", "-o", str(pmtiles_tmp), "-l", "tracks",
-                "-Z0", "-z14", "--no-feature-limit", "--no-tile-size-limit",
-                "--simplification=4", "--coalesce-densest-as-needed", "--force",
+                "tippecanoe", "-o", str(pmtiles_tmp),
+                "-l", cfg["layer"],
+                f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
+                *cfg["extra_args"],
                 str(geojsonseq),
             ],
             check=True,
@@ -946,16 +960,15 @@ def fetch_row_geojson(output_path: Path) -> None:
 
 def run_build_row_pmtiles(geojson_path: Path, pmtiles_path: Path) -> None:
     """Convert row.geojson → row.pmtiles using tippecanoe."""
+    cfg = _load_pmtiles_config(ROW_PMTILES_CONFIG)
     with tempfile.TemporaryDirectory(prefix="doneit-row-") as tmpdir:
         tmp = Path(tmpdir) / "row.pmtiles"
         subprocess.run(
             [
-                "tippecanoe",
-                "-o", str(tmp), "-l", "row",
-                "-Z10", "-z16",
-                "--no-feature-limit", "--no-tile-size-limit",
-                "--simplification=2",
-                "--force",
+                "tippecanoe", "-o", str(tmp),
+                "-l", cfg["layer"],
+                f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
+                *cfg["extra_args"],
                 str(geojson_path),
             ],
             check=True,
@@ -997,10 +1010,13 @@ def run_build_peaks_pmtiles(
             return
 
         pmtiles_tmp = tmp / "peaks.pmtiles"
+        cfg = _load_pmtiles_config(PEAKS_PMTILES_CONFIG)
         subprocess.run(
             [
-                "tippecanoe", "-o", str(pmtiles_tmp), "-l", "peaks",
-                "-Z0", "-z14", "-r1", "--no-feature-limit", "--no-tile-size-limit", "--force",
+                "tippecanoe", "-o", str(pmtiles_tmp),
+                "-l", cfg["layer"],
+                f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
+                *cfg["extra_args"],
                 str(geojsonseq),
             ],
             check=True,

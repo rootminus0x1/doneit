@@ -2,6 +2,8 @@ import { useState, useRef } from 'react';
 import type { TileSource } from '../lib/tileConfig';
 import { RowAccessSlider } from './RowAccessSlider';
 
+const IS_TOUCH = window.matchMedia('(hover: none)').matches;
+
 interface Props {
     sources: TileSource[];
     activeId: string;
@@ -44,10 +46,14 @@ export function MapStyleSelector({
     if (!active) return null;
     const behind = baseSources.filter(s => s.id !== activeId).slice(0, 2);
 
-    // Click on stack rotates to the next source
+    // On desktop: click cycles to the next source. On touch: tap toggles the panel open/closed.
     const handleStackClick = () => {
-        const idx = baseSources.findIndex(s => s.id === activeId);
-        onSelect(baseSources[(idx + 1) % baseSources.length].id);
+        if (IS_TOUCH) {
+            setOpen(prev => !prev);
+        } else {
+            const idx = baseSources.findIndex(s => s.id === activeId);
+            onSelect(baseSources[(idx + 1) % baseSources.length].id);
+        }
     };
 
     // Container is big enough for all stacked cards (they offset bottom-right)
@@ -76,7 +82,7 @@ export function MapStyleSelector({
                                     ...styles.option,
                                     outline: s.id === activeId ? '3px solid #1a73e8' : '2px solid transparent',
                                 }}
-                                onClick={() => onSelect(s.id)}
+                                onClick={() => { onSelect(s.id); if (IS_TOUCH) setOpen(false); }}
                             >
                                 <div style={styles.optionThumb}>
                                     <img
@@ -97,7 +103,12 @@ export function MapStyleSelector({
                         <>
                             <div style={styles.divider} />
                             <div style={{ ...styles.column, minWidth: 130 }}>
-                                <div style={styles.columnHeader}>Rights of Way</div>
+                                <div style={styles.columnHeader}>
+                                    Rights of Way
+                                    <span style={{ fontWeight: 400, color: overlaySources.length === 0 ? '#e53935' : '#999' }}>
+                                        {' '}({overlaySources.length})
+                                    </span>
+                                </div>
                                 <RowAccessSlider value={rowAccessLevel} onChange={onRowAccessChange} />
                             </div>
                         </>

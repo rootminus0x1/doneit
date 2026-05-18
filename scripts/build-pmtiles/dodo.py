@@ -38,8 +38,7 @@ DOIT_CONFIG = {
 # Config from environment (set by build.py before invoking doit)
 # ---------------------------------------------------------------------------
 _FOLDER = os.environ.get("DONEIT_FOLDER", pipeline.DRIVE_FOLDER)
-_BAG_DISTANCE = float(os.environ.get("DONEIT_BAG_DISTANCE", "500"))
-_BAG_CONFIG_PATH = pipeline.BUILD_DIR / ".bag-config.json"
+_BAG_DISTANCE = float(json.loads(pipeline.BAG_CONFIG.read_text())["bag_distance"])
 
 # ---------------------------------------------------------------------------
 # Local output paths (all artifacts land in DoneIt/ before deploy)
@@ -110,7 +109,7 @@ def task_build_row_pmtiles() -> dict[str, Any]:
         pipeline.run_build_row_pmtiles(pipeline.ROW_GEOJSON_PATH, pipeline.ROW_PMTILES_PATH)
 
     return {
-        "file_dep": [str(pipeline.ROW_GEOJSON_PATH)],
+        "file_dep": [str(pipeline.ROW_GEOJSON_PATH), str(pipeline.ROW_PMTILES_CONFIG)],
         "targets": [str(pipeline.ROW_PMTILES_PATH)],
         "actions": [action],
         "task_dep": ["fetch_row"],
@@ -135,10 +134,8 @@ def task_parse_and_bag_tracks() -> dict[str, Any]:
     if _peaks_folder:
         targets.append(str(_local_peaks_index))
 
-    bag_config_dep = [str(_BAG_CONFIG_PATH)] if _BAG_CONFIG_PATH.exists() else []
-
     return {
-        "file_dep": gpx_paths + peak_gpx_paths + bag_config_dep,
+        "file_dep": gpx_paths + peak_gpx_paths + [str(pipeline.BAG_CONFIG)],
         "targets": targets,
         "actions": [action],
     }
@@ -155,7 +152,7 @@ def task_build_tracks() -> dict[str, Any]:
         )
 
     return {
-        "file_dep": [str(_cache_path)],
+        "file_dep": [str(_cache_path), str(pipeline.TRACKS_PMTILES_CONFIG)],
         "targets": [str(_local_tracks_pmtiles), str(_local_tracks_index)],
         "actions": [action],
         "task_dep": ["parse_and_bag_tracks"],
@@ -173,7 +170,7 @@ def task_build_peaks_pmtiles() -> dict[str, Any]:
         pipeline.run_build_peaks_pmtiles(_peaks_gpx, _local_peaks_pmtiles)
 
     return {
-        "file_dep": peak_gpx_paths + [str(_local_peaks_index)],
+        "file_dep": peak_gpx_paths + [str(_local_peaks_index), str(pipeline.PEAKS_PMTILES_CONFIG)],
         "targets": [str(_local_peaks_pmtiles)],
         "actions": [action],
         "task_dep": ["parse_and_bag_tracks"],

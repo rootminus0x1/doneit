@@ -8,14 +8,13 @@ Options:
                     are re-parsed and all peak baggings are re-detected from scratch.
   --retrack PATTERN Remove GPX cache entries matching PATTERN (glob, e.g. 'hills/*')
                     and delete .doit.db so those tracks are re-parsed and re-bagged.
-  --bag-distance M  Peak detection radius in metres (default: 500). Any change is
-                    detected automatically and triggers re-bagging of all cached tracks.
   --folder NAME     Drive folder name (default: DoneIt).
   TASK              doit tasks to run (default: build_tracks build_peaks_pmtiles).
+
+Bag detection radius is configured in bag-config.json alongside pipeline.py.
 """
 import argparse
 import fnmatch
-import json
 import os
 import subprocess
 import sys
@@ -27,19 +26,6 @@ sys.path.insert(0, str(HERE))
 import pipeline  # noqa: E402
 
 BUILD_DIR = pipeline.BUILD_DIR
-BAG_CONFIG_PATH = BUILD_DIR / ".bag-config.json"
-
-
-def _bag_distance_changed(bag_distance: float) -> bool:
-    """Return True if bag-distance differs from last run; update stored value."""
-    try:
-        stored = json.loads(BAG_CONFIG_PATH.read_text()).get("bag_distance")
-    except Exception:
-        stored = None
-    if stored == bag_distance:
-        return False
-    BAG_CONFIG_PATH.write_text(json.dumps({"bag_distance": bag_distance}))
-    return True
 
 
 def main() -> None:
@@ -58,13 +44,6 @@ def main() -> None:
     parser.add_argument(
         "--folder", default=pipeline.DRIVE_FOLDER, metavar="NAME",
         help="Drive folder name to read GPX tracks and peaks from (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--bag-distance", type=float, default=500.0, metavar="METRES",
-        help=(
-            "peak detection radius in metres (default: %(default)s); "
-            "any change is detected automatically and re-bags all cached tracks"
-        ),
     )
     parser.add_argument(
         "--force", action="store_true",
@@ -98,17 +77,11 @@ def main() -> None:
     env = {
         **os.environ,
         "DONEIT_FOLDER": args.folder,
-        "DONEIT_BAG_DISTANCE": str(args.bag_distance),
     }
     if args.offline:
         env["DONEIT_OFFLINE"] = "1"
 
     db_path = BUILD_DIR / ".doit.db"
-
-    # Write .bag-config.json so doit detects a bag-distance change via its file dep.
-    # The pipeline also reads bag_distance from peaks-index.json to confirm the change.
-    if not args.force:
-        _bag_distance_changed(args.bag_distance)
 
     if args.force or args.retrack:
         cache_path: Path = pipeline.GPX_CACHE_PATH
@@ -120,8 +93,6 @@ def main() -> None:
             if db_path.exists():
                 db_path.unlink()
                 print("Deleted .doit.db")
-            # Update stored bag distance so the next non-force run doesn't re-trigger
-            BAG_CONFIG_PATH.write_text(json.dumps({"bag_distance": args.bag_distance}))
 
         if args.retrack:
             if cache_path.exists():

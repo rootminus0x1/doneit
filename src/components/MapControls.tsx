@@ -53,7 +53,20 @@ export function MapControls({ onLocate, bearing = 0, onResetNorth }: Props) {
                 </svg>
             </button>
             <button style={styles.btn} title="Locate me" onClick={handleLocate}>
-                {locating ? '…' : locateError ? '✕' : '◎'}
+                {locating ? (
+                    <span style={{ fontSize: 16, color: '#4285f4' }}>…</span>
+                ) : locateError ? (
+                    <span style={{ fontSize: 16, color: '#d32f2f' }}>✕</span>
+                ) : (
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" style={{ display: 'block' }}>
+                        <circle cx="12" cy="12" r="7" stroke="#4285f4" strokeWidth="2"/>
+                        <circle cx="12" cy="12" r="2.5" fill="#4285f4"/>
+                        <line x1="12" y1="2" x2="12" y2="5" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
+                        <line x1="12" y1="19" x2="12" y2="22" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
+                        <line x1="2" y1="12" x2="5" y2="12" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
+                        <line x1="19" y1="12" x2="22" y2="12" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                )}
             </button>
         </div>
     );
@@ -62,7 +75,7 @@ export function MapControls({ onLocate, bearing = 0, onResetNorth }: Props) {
 const styles: Record<string, React.CSSProperties> = {
     container: {
         position: 'absolute',
-        bottom: 32,
+        bottom: 72,
         right: 12,
         display: 'flex',
         flexDirection: 'column',

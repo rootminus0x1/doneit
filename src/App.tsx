@@ -56,9 +56,13 @@ export default function App() {
 
     const savedCenter = useRef<[number, number]>([-4.0, 57.0]);
     const savedZoom = useRef<number>(7);
+    const [mapCenter, setMapCenter] = useState<[number, number]>([-4.0, 57.0]);
+    const [mapZoom, setMapZoom] = useState<number>(7);
     const handleMove = useCallback((center: [number, number], zoom: number) => {
         savedCenter.current = center;
         savedZoom.current = zoom;
+        setMapCenter(center);
+        setMapZoom(zoom);
     }, []);
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -82,11 +86,6 @@ export default function App() {
     const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
     const [clickedTrack, setClickedTrack] = useState<TrackPopupData | null>(null);
 
-    const [showVersion, setShowVersion] = useState(true);
-    useEffect(() => {
-        const t = setTimeout(() => setShowVersion(false), 4000);
-        return () => clearTimeout(t);
-    }, []);
 
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
@@ -124,7 +123,11 @@ export default function App() {
     const tokenRef = useRef(token);
     tokenRef.current = token;
 
-    const overlays = allSources.filter(s => s.type === 'pmtiles-overlay');
+    const overlays = useMemo(
+        () => allSources.filter(s => s.type === 'pmtiles-overlay'),
+        [allSources],
+    );
+
 
     const hiddenOverlays = useMemo(
         () => overlays.filter(ov => (ov.minAccessLevel ?? 0) > rowAccessLevel).map(ov => ov.id),
@@ -303,7 +306,7 @@ export default function App() {
                 )}
             </div>
 
-            {showVersion && <div style={styles.versionToast}>Version: {formatDatetime(__BUILD_TIME__)}</div>}
+            {!token && <div style={styles.versionToast}>Version: {formatDatetime(__BUILD_TIME__)}</div>}
 
             {token && !ready && <div style={styles.loadingBanner}>Loading…</div>}
 
@@ -315,6 +318,10 @@ export default function App() {
             {mapError && (
                 <div style={{ ...styles.loadingBanner, background: '#c62828' }}>Map style error: {mapError}</div>
             )}
+
+            <div style={styles.coordDisplay}>
+                {formatCoord(mapCenter[1], mapCenter[0])}
+            </div>
 
             <MapControls onLocate={setFlyToBbox} bearing={bearing} onResetNorth={() => setNorthTrigger(n => n + 1)} />
 
@@ -334,6 +341,7 @@ export default function App() {
                 trackCount={trackIndex?.tracks.length ?? 0}
                 indexGenerated={trackIndex?.generated ?? null}
                 unindexedCount={unindexedFiles.length}
+                zoom={mapZoom}
             />
 
             {popup && (
@@ -532,4 +540,20 @@ const styles: Record<string, React.CSSProperties> = {
         color: '#888',
     },
     popupBaggedDate: { fontSize: 13, color: '#2e7d32', marginTop: 6 },
+    coordDisplay: {
+        position: 'absolute',
+        bottom: 8,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(255,255,255,0.85)',
+        color: '#333',
+        padding: '3px 10px',
+        borderRadius: 10,
+        fontSize: 11,
+        fontFamily: 'monospace',
+        zIndex: 10,
+        pointerEvents: 'none',
+        whiteSpace: 'nowrap',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+    },
 };
