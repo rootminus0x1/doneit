@@ -8,7 +8,8 @@
       "WebFetch(domain:www.rowmaps.com)",
       "Bash(yarn test:py)",
       "Bash(yarn test *)",
-      "Bash(yarn vitest *)"
+      "Bash(yarn vitest *)",
+      "Bash(python3 -c \"import pipeline; print\\('OK'\\)\")"
     ]
   }
 }

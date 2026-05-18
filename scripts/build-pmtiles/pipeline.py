@@ -40,155 +40,10 @@ GPX_CACHE_PATH = BUILD_DIR / "gpx-cache.json"
 ROW_GEOJSON_PATH = BUILD_DIR / "row.geojson"
 ROW_PMTILES_PATH = DONEIT_LOCAL / "row.pmtiles"
 _ROW_BASE_URL = "https://www.rowmaps.com/jsons"
+_ROW_DATASETS_URL = "https://www.rowmaps.com/datasets/"
 _ROW_ETAG_PATH = BUILD_DIR / "row-etags.json"
 _ROW_CACHE_DIR = BUILD_DIR / "row-cache"
 _ROW_TYPES = {1: "footpath", 2: "bridleway", 3: "restricted_byway", 4: "byway"}
-_ROW_AUTHORITIES = {
-    "B1": "Brecon Beacons National Park",
-    "B2": "Bournemouth, Christchurch and Poole",
-    "BA": "Bradford",
-    "BB": "Blackburn with Darwen",
-    "BC": "Bracknell Forest",
-    "BD": "Barking and Dagenham",
-    "BE": "Bridgend",
-    "BF": "Bedford",
-    "BG": "Blaenau Gwent",
-    "BH": "City of Brighton and Hove",
-    "BI": "Birmingham",
-    "BL": "Barnsley",
-    "BM": "Buckinghamshire",
-    "BO": "Bolton",
-    "BP": "Blackpool",
-    "BR": "Bromley",
-    "BS": "Bath and North East Somerset",
-    "BX": "Bexley",
-    "BY": "Bury",
-    "BZ": "City of Bristol",
-    "CA": "Calderdale",
-    "CB": "Cambridgeshire",
-    "CC": "Cheshire West and Chester",
-    "CD": "Cardiff",
-    "CE": "Ceredigion",
-    "CF": "Caerphilly",
-    "CH": "Cheshire East",
-    "CN": "Cornwall",
-    "CT": "Carmarthenshire",
-    "CU": "Cumbria",
-    "CV": "Coventry",
-    "CW": "Conwy",
-    "DB": "City of Derby",
-    "DE": "Denbighshire",
-    "DL": "Darlington",
-    "DN": "Devon",
-    "DR": "Doncaster",
-    "DT": "Dorset",
-    "DU": "Durham",
-    "DY": "Derbyshire",
-    "DZ": "Dudley",
-    "EG": "Ealing",
-    "ES": "East Sussex",
-    "EX": "Essex",
-    "EY": "East Riding of Yorkshire",
-    "FL": "Flintshire",
-    "GH": "Gateshead",
-    "GR": "Gloucestershire",
-    "GY": "Gwynedd",
-    "HA": "Halton",
-    "HD": "Hertfordshire",
-    "HE": "Herefordshire",
-    "HG": "Haringey",
-    "HI": "Hillingdon",
-    "HP": "Hampshire",
-    "HS": "Hounslow",
-    "IA": "Isle of Anglesey",
-    "IW": "Isle of Wight",
-    "KG": "Kingston upon Thames",
-    "KH": "City of Kingston upon Hull",
-    "KL": "Kirklees",
-    "KT": "Kent",
-    "L1": "Lake District National Park",
-    "LA": "Lancashire",
-    "LC": "City of Leicester",
-    "LD": "Leeds",
-    "LL": "Lincolnshire",
-    "LP": "Liverpool",
-    "LT": "Leicestershire",
-    "MA": "Manchester",
-    "MB": "Middlesbrough",
-    "ME": "Medway",
-    "MK": "Milton Keynes",
-    "MM": "Monmouthshire",
-    "MT": "Merthyr Tydfil",
-    "N2": "North Northamptonshire",
-    "N3": "West Northamptonshire",
-    "NC": "North East Lincolnshire",
-    "ND": "Northumberland",
-    "NE": "Newport",
-    "NG": "City of Nottingham",
-    "NI": "North Lincolnshire",
-    "NK": "Norfolk",
-    "NP": "Neath Port Talbot",
-    "NS": "North Somerset",
-    "NT": "Nottinghamshire",
-    "NW": "Newcastle upon Tyne",
-    "NY": "North Yorkshire",
-    "OH": "Oldham",
-    "ON": "Oxfordshire",
-    "PB": "Pembrokeshire",
-    "PE": "City of Peterborough",
-    "PO": "City of Portsmouth",
-    "PW": "Powys",
-    "PY": "City of Plymouth",
-    "RB": "Redbridge",
-    "RC": "Redcar and Cleveland",
-    "RD": "Rochdale",
-    "RG": "Reading",
-    "RH": "Rhondda Cynon Taff",
-    "RL": "Rutland",
-    "SA": "Sandwell",
-    "SC": "Salford",
-    "SD": "Swindon",
-    "SE": "Sefton",
-    "SF": "Staffordshire",
-    "SG": "South Gloucestershire",
-    "SH": "Shropshire",
-    "SK": "Suffolk",
-    "SM": "Stockton on Tees",
-    "SN": "St Helens",
-    "SO": "City of Southampton",
-    "SP": "Sheffield",
-    "SQ": "Solihull",
-    "SS": "Swansea",
-    "ST": "Somerset",
-    "SU": "Surrey",
-    "SV": "Sunderland",
-    "SY": "South Tyneside",
-    "SZ": "Sutton",
-    "TB": "Torbay",
-    "TF": "Torfaen",
-    "TS": "Tameside",
-    "TU": "Thurrock",
-    "VG": "Vale of Glamorgan",
-    "WA": "Walsall",
-    "WB": "West Berkshire",
-    "WC": "Windsor and Maidenhead",
-    "WE": "Wakefield",
-    "WF": "Waltham Forest",
-    "WG": "Warrington",
-    "WH": "City of Wolverhampton",
-    "WJ": "Wokingham",
-    "WK": "Warwickshire",
-    "WN": "Wigan",
-    "WO": "Worcestershire",
-    "WP": "Telford and Wrekin",
-    "WR": "Wirral",
-    "WS": "West Sussex",
-    "WX": "Wrexham",
-    "YK": "York",
-    "YT": "Slough",
-    "YY": "Stockport",
-}
-
 
 # ---------------------------------------------------------------------------
 # Startup helpers (called explicitly by dodo.py, never at import time)
@@ -810,6 +665,19 @@ def run_build_tracks(
 # at runtime from peaks-index.json loaded by the app.
 # ---------------------------------------------------------------------------
 
+def _scrape_row_authorities() -> dict[str, str]:
+    """Fetch the authority code→name mapping from the rowmaps.com datasets page."""
+    import re
+    import urllib.request
+    req = urllib.request.Request(_ROW_DATASETS_URL, headers={"User-Agent": "doneit-build/1.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        html = resp.read().decode("utf-8", errors="replace")
+    matches = re.findall(r'href="([A-Z][A-Z0-9]+)/"[^>]*>(.*?)</a>', html)
+    if not matches:
+        sys.exit(f"Could not parse authority list from {_ROW_DATASETS_URL} — page layout may have changed")
+    return {code: name.replace("&nbsp;", " ").strip() for code, name in matches}
+
+
 def fetch_row_geojson(output_path: Path) -> None:
     """Download Rights of Way GeoJSON from rowmaps.com.
 
@@ -839,6 +707,8 @@ def fetch_row_geojson(output_path: Path) -> None:
 
     _ROW_CACHE_DIR.mkdir(exist_ok=True)
 
+    authorities = _scrape_row_authorities()
+
     # Load saved ETags: {"CODE/type_num": {"etag": "...", "last_modified": "..."}}
     etags: dict[str, dict[str, str]] = {}
     if _ROW_ETAG_PATH.exists():
@@ -846,6 +716,20 @@ def fetch_row_geojson(output_path: Path) -> None:
             etags = json.loads(_ROW_ETAG_PATH.read_text())
         except Exception:
             pass
+
+    # Detect authority-set changes (additions or deletions) by comparing the
+    # current scraped codes against what the ETag cache was built from.
+    cached_codes = {key.split("/")[0] for key in etags}
+    added_codes = set(authorities) - cached_codes
+    removed_codes = cached_codes - set(authorities)
+    if added_codes:
+        print(f"  New authorit(ies) since last fetch: {', '.join(sorted(added_codes))}")
+    if removed_codes:
+        print(f"  Removed authorit(ies) since last fetch: {', '.join(sorted(removed_codes))}")
+        # Drop stale ETag entries so they don't accumulate
+        for key in list(etags):
+            if key.split("/")[0] in removed_codes:
+                del etags[key]
 
     def _fetch_one(code: str, name: str, type_num: int) -> tuple[str, int, str, list[dict[str, Any]], dict[str, str] | None]:
         """Returns (code, type_num, status, features, new_etag_entry).
@@ -899,7 +783,7 @@ def fetch_row_geojson(output_path: Path) -> None:
 
     tasks = [
         (code, name, t)
-        for code, name in sorted(_ROW_AUTHORITIES.items())
+        for code, name in sorted(authorities.items())
         for t in _ROW_TYPES
     ]
     total = len(tasks)
@@ -911,7 +795,7 @@ def fetch_row_geojson(output_path: Path) -> None:
     completed = 0
     unchanged = errors = 0
 
-    print(f"Checking ROW data: {len(_ROW_AUTHORITIES)} authorities × {len(_ROW_TYPES)} types ...")
+    print(f"Checking ROW data: {len(authorities)} authorities × {len(_ROW_TYPES)} types ...")
     with ThreadPoolExecutor(max_workers=16) as pool:
         futures = {pool.submit(_fetch_one, code, name, t): None for code, name, t in tasks}
         for future in as_completed(futures):
@@ -929,15 +813,22 @@ def fetch_row_geojson(output_path: Path) -> None:
             if completed % 100 == 0 or completed == total:
                 print(f"  {completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
 
-    if not changed_authorities:
+    if not changed_authorities and not added_codes and not removed_codes:
         print(f"  All {total} files unchanged — skipping output write")
         _ROW_ETAG_PATH.write_text(json.dumps(new_etags))
         return
 
     # Load cached features for unchanged authorities, merge with newly downloaded ones
-    print(f"  {len(changed_authorities)} authorit(ies) changed — rebuilding ...")
+    reasons: list[str] = []
+    if changed_authorities:
+        reasons.append(f"{len(changed_authorities)} changed")
+    if added_codes:
+        reasons.append(f"{len(added_codes)} added")
+    if removed_codes:
+        reasons.append(f"{len(removed_codes)} removed")
+    print(f"  Rebuilding ({', '.join(reasons)}) ...")
     all_features: list[dict[str, Any]] = []
-    for code in sorted(_ROW_AUTHORITIES):
+    for code in sorted(authorities):
         cache_file = _ROW_CACHE_DIR / f"{code}.json"
         if code in changed_authorities:
             features = new_features.get(code, [])
