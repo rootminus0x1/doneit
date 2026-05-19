@@ -41,14 +41,13 @@ _FOLDER = os.environ.get("DONEIT_FOLDER", pipeline.DRIVE_FOLDER)
 _BAG_DISTANCE = float(json.loads(pipeline.BAG_CONFIG.read_text())["bag_distance"])
 
 # ---------------------------------------------------------------------------
-# Local output paths (all artifacts land in DoneIt/ before deploy)
+# Local output paths — defined in pipeline.py alongside the source paths
 # ---------------------------------------------------------------------------
-_local = pipeline.DONEIT_LOCAL
-_local_tracks_pmtiles = _local / "tracks" / "tracks.pmtiles"
-_local_tracks_index   = _local / "tracks" / "tracks-index.json"
-_local_peaks_pmtiles  = _local / "peaks"  / "peaks.pmtiles"
-_local_peaks_index    = _local / "peaks"  / pipeline.PEAKS_INDEX_NAME
-_local_tile_sources   = _local / "tile-sources.json"
+_local_tracks_pmtiles = pipeline.TRACKS_PMTILES_PATH
+_local_tracks_index   = pipeline.TRACKS_INDEX_PATH
+_local_peaks_pmtiles  = pipeline.PEAKS_PMTILES_PATH
+_local_peaks_index    = pipeline.PEAKS_INDEX_PATH
+_local_tile_sources   = pipeline.TILE_SOURCES_PATH
 
 # ---------------------------------------------------------------------------
 # Drive path discovery (GVFS) — needed for reading input GPX files and deploy
@@ -56,9 +55,13 @@ _local_tile_sources   = _local / "tile-sources.json"
 print("Locating Drive via GVFS ...", file=sys.stderr)
 _drive_root = pipeline.find_gdrive_root()
 _doneit = pipeline.find_folder(_drive_root, _FOLDER)
-_doneit_names = pipeline.list_by_name(_doneit)
 _tracks_folder = pipeline.find_folder(_doneit, "tracks")
 _track_names = pipeline.list_by_name(_tracks_folder)
+
+_config_folder: Path | None = pipeline.find_folder_optional(_doneit, "config")
+_config_names: dict[str, Path] = pipeline.list_by_name(_config_folder) if _config_folder else {}
+_generated_folder: Path | None = pipeline.find_folder_optional(_doneit, "generated")
+_generated_names: dict[str, Path] = pipeline.list_by_name(_generated_folder) if _generated_folder else {}
 
 _cache_path: Path = pipeline.GPX_CACHE_PATH
 
@@ -76,7 +79,7 @@ for _cat, _cat_path in sorted(_category_folders.items()):
 
 # Filename → Drive file ID — read from local index first, fall back to GVFS copy
 _filename_to_file_id: dict[str, str] = {}
-_idx_source = _local_tracks_index if _local_tracks_index.exists() else _track_names.get("tracks-index.json")
+_idx_source = _local_tracks_index if _local_tracks_index.exists() else _generated_names.get("tracks-index.json")
 if _idx_source:
     try:
         _idx = json.loads(Path(_idx_source).read_text())
@@ -179,16 +182,22 @@ def task_build_peaks_pmtiles() -> dict[str, Any]:
 
 def task_deploy() -> dict[str, Any]:
     """Copy changed files from DoneIt/ to Google Drive via GVFS (MD5-checked)."""
+    def _cfg(name: str) -> Path:
+        return _config_names.get(name, _config_folder / name) if _config_folder else _doneit / "config" / name
+
+    def _gen(name: str) -> Path:
+        return _generated_names.get(name, _generated_folder / name) if _generated_folder else _doneit / "generated" / name
+
     pairs: list[tuple[Path, Path]] = [
-        (_local_tile_sources, _doneit_names.get("tile-sources.json", _doneit / "tile-sources.json")),
-        (pipeline.ROW_PMTILES_PATH,  _doneit_names.get("row.pmtiles",  _doneit / "row.pmtiles")),
-        (_local_tracks_pmtiles, _track_names.get("tracks.pmtiles", _tracks_folder / "tracks.pmtiles")),
-        (_local_tracks_index,   _track_names.get("tracks-index.json", _tracks_folder / "tracks-index.json")),
+        (_local_tile_sources,       _cfg("tile-sources.json")),
+        (pipeline.ROW_PMTILES_PATH, _gen("row.pmtiles")),
+        (_local_tracks_pmtiles,     _gen("tracks.pmtiles")),
+        (_local_tracks_index,       _gen("tracks-index.json")),
     ]
     if _peaks_folder:
         pairs += [
-            (_local_peaks_pmtiles, _peaks_names.get("peaks.pmtiles", _peaks_folder / "peaks.pmtiles")),
-            (_local_peaks_index,   _peaks_names.get(pipeline.PEAKS_INDEX_NAME, _peaks_folder / pipeline.PEAKS_INDEX_NAME)),
+            (_local_peaks_pmtiles, _gen("peaks.pmtiles")),
+            (_local_peaks_index,   _gen(pipeline.PEAKS_INDEX_NAME)),
         ]
 
     _stamp = pipeline.BUILD_DIR / ".deploy.stamp"

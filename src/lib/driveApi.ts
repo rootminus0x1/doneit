@@ -23,6 +23,7 @@ export interface DriveFile {
     name: string;
     mimeType: string;
     size?: string;
+    md5Checksum?: string;
 }
 
 function driveSignal(): AbortSignal {
@@ -65,7 +66,7 @@ export async function listFiles(
 
     const params = new URLSearchParams({
         q: q.join(' and '),
-        fields: 'files(id,name,mimeType,size)',
+        fields: 'files(id,name,mimeType,size,md5Checksum)',
         pageSize: '1000',
     });
     const res = await request<{ files: DriveFile[] }>(`${DRIVE_API}/files?${params}`, token);
@@ -172,6 +173,24 @@ export async function upsertJsonFile(
         }
         await assertOk(res);
     }
+}
+
+export async function downloadFileStream(
+    token: string | null,
+    fileId: string,
+    signal?: AbortSignal,
+): Promise<Response> {
+    let res: Response;
+    try {
+        res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
+            signal,
+            headers: { Authorization: `Bearer ${token}` },
+        });
+    } catch (err) {
+        throw new Error(timeoutMessage(err));
+    }
+    await assertOk(res);
+    return res;
 }
 
 export async function getRootFolderId(token: string | null): Promise<string> {

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,14 +37,40 @@ PEAKS_INDEX_NAME = "peaks-index.json"
 
 BUILD_DIR = Path(__file__).parent / "build"
 
-GPX_CACHE_PATH = BUILD_DIR / "gpx-cache.json"
-ROW_GEOJSON_PATH = BUILD_DIR / "row.geojson"
-ROW_PMTILES_PATH = DONEIT_LOCAL / "row.pmtiles"
+GPX_CACHE_PATH    = BUILD_DIR / "gpx-cache.json"
+ROW_GEOJSON_PATH  = BUILD_DIR / "row.geojson"
+ROW_PMTILES_PATH      = DONEIT_LOCAL / "generated" / "row.pmtiles"
+TRACKS_PMTILES_PATH   = DONEIT_LOCAL / "generated" / "tracks.pmtiles"
+TRACKS_INDEX_PATH     = DONEIT_LOCAL / "generated" / "tracks-index.json"
+PEAKS_PMTILES_PATH    = DONEIT_LOCAL / "generated" / "peaks.pmtiles"
+PEAKS_INDEX_PATH      = DONEIT_LOCAL / "generated" / PEAKS_INDEX_NAME
+TILE_SOURCES_PATH     = DONEIT_LOCAL / "config"    / "tile-sources.json"
 _ROW_BASE_URL = "https://www.rowmaps.com/jsons"
 _ROW_DATASETS_URL = "https://www.rowmaps.com/datasets/"
 _ROW_ETAG_PATH = BUILD_DIR / "row-etags.json"
 _ROW_CACHE_DIR = BUILD_DIR / "row-cache"
 _ROW_TYPES = {1: "footpath", 2: "bridleway", 3: "restricted_byway", 4: "byway"}
+
+# ---------------------------------------------------------------------------
+# Timing helper
+# ---------------------------------------------------------------------------
+
+_phase_stack: list[str] = []
+
+@contextmanager  # type: ignore[misc]
+def phase(label: str):
+    """Context manager that prints '<label> ...' on enter and '<label> done (took Ns)' on exit."""
+    depth = len(_phase_stack)
+    indent = "  " * depth
+    print(f"{indent}{label} ...")
+    t0 = time.perf_counter()
+    _phase_stack.append(label)
+    try:
+        yield
+    finally:
+        _phase_stack.pop()
+        print(f"{indent}{label} done (took {time.perf_counter() - t0:.1f}s)")
+
 
 # ---------------------------------------------------------------------------
 # Startup helpers (called explicitly by dodo.py, never at import time)
@@ -53,8 +80,8 @@ def ensure_build_dirs() -> None:
     """Create local build/output directories. Must be called before any file I/O."""
     BUILD_DIR.mkdir(exist_ok=True)
     DONEIT_LOCAL.mkdir(exist_ok=True)
-    (DONEIT_LOCAL / "tracks").mkdir(exist_ok=True)
-    (DONEIT_LOCAL / "peaks").mkdir(exist_ok=True)
+    (DONEIT_LOCAL / "config").mkdir(exist_ok=True)
+    (DONEIT_LOCAL / "generated").mkdir(exist_ok=True)
 
 
 def is_online(timeout: float = 3.0) -> bool:
@@ -130,11 +157,12 @@ def load_gpx_cache(cache_path: Path) -> dict[str, Any]:
     if not cache_path.exists():
         return {}
     try:
-        data = json.loads(cache_path.read_text())
-        if data.get("version") == 1:
-            entries: dict[str, Any] = data.get("entries", {})
-            print(f"  Loaded {len(entries)} cached GPX entries")
-            return entries
+        with phase("Loading GPX cache"):
+            data = json.loads(cache_path.read_text())
+            if data.get("version") == 1:
+                entries: dict[str, Any] = data.get("entries", {})
+                print(f"  {len(entries)} entries")
+                return entries
     except Exception as e:
         print(f"Warning: could not read {cache_path.name}: {e}", file=sys.stderr)
     return {}
@@ -263,15 +291,16 @@ def deploy_to_drive(pairs: list[tuple[Path, Path]]) -> None:
     def md5(p: Path) -> str:
         return hashlib.md5(p.read_bytes()).hexdigest()
 
-    for src, dst in pairs:
-        if not src.exists():
-            continue
-        if dst.exists() and md5(src) == md5(dst):
-            print(f"  unchanged: {src.name}")
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(str(src), str(dst))
-        print(f"  deployed:  {src.name}")
+    with phase("Deploying to Drive"):
+        for src, dst in pairs:
+            if not src.exists():
+                continue
+            if dst.exists() and md5(src) == md5(dst):
+                print(f"  unchanged: {src.name}")
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(str(src), str(dst))
+            print(f"  deployed:  {src.name}")
 
 
 def _lookup_country(gdf: Any, sindex: Any, lng: float, lat: float) -> str | None:
@@ -635,17 +664,17 @@ def run_build_tracks(
 
         pmtiles_tmp = tmp / "tracks.pmtiles"
         cfg = _load_pmtiles_config(TRACKS_PMTILES_CONFIG)
-        print(f"Running tippecanoe for {total} track(s) ...")
-        subprocess.run(
-            [
-                "tippecanoe", "-o", str(pmtiles_tmp),
-                "-l", cfg["layer"],
-                f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
-                *cfg["extra_args"],
-                str(geojsonseq),
-            ],
-            check=True,
-        )
+        with phase(f"Running tippecanoe for {total} track(s)"):
+            subprocess.run(
+                [
+                    "tippecanoe", "-o", str(pmtiles_tmp),
+                    "-l", cfg["layer"],
+                    f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
+                    *cfg["extra_args"],
+                    str(geojsonseq),
+                ],
+                check=True,
+            )
         size_mb = pmtiles_tmp.stat().st_size / 1_048_576
         print(f"  Tracks PMTiles: {size_mb:.1f} MB")
         shutil.copyfile(str(pmtiles_tmp), str(pmtiles_dest))
@@ -795,23 +824,23 @@ def fetch_row_geojson(output_path: Path) -> None:
     completed = 0
     unchanged = errors = 0
 
-    print(f"Checking ROW data: {len(authorities)} authorities × {len(_ROW_TYPES)} types ...")
-    with ThreadPoolExecutor(max_workers=16) as pool:
-        futures = {pool.submit(_fetch_one, code, name, t): None for code, name, t in tasks}
-        for future in as_completed(futures):
-            code, type_num, status, features, etag_entry = future.result()
-            completed += 1
-            if status == "changed":
-                new_features.setdefault(code, []).extend(features)
-                changed_authorities.add(code)
-                if etag_entry:
-                    new_etags[f"{code}/{type_num}"] = etag_entry
-            elif status == "unchanged":
-                unchanged += 1
-            elif status == "error":
-                errors += 1
-            if completed % 100 == 0 or completed == total:
-                print(f"  {completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
+    with phase(f"Fetching ROW data ({len(authorities)} authorities × {len(_ROW_TYPES)} types)"):
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            futures = {pool.submit(_fetch_one, code, name, t): None for code, name, t in tasks}
+            for future in as_completed(futures):
+                code, type_num, status, features, etag_entry = future.result()
+                completed += 1
+                if status == "changed":
+                    new_features.setdefault(code, []).extend(features)
+                    changed_authorities.add(code)
+                    if etag_entry:
+                        new_etags[f"{code}/{type_num}"] = etag_entry
+                elif status == "unchanged":
+                    unchanged += 1
+                elif status == "error":
+                    errors += 1
+                if completed % 100 == 0 or completed == total:
+                    print(f"  {completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
 
     if not changed_authorities and not added_codes and not removed_codes:
         print(f"  All {total} files unchanged — skipping output write")
@@ -854,16 +883,17 @@ def run_build_row_pmtiles(geojson_path: Path, pmtiles_path: Path) -> None:
     cfg = _load_pmtiles_config(ROW_PMTILES_CONFIG)
     with tempfile.TemporaryDirectory(prefix="doneit-row-") as tmpdir:
         tmp = Path(tmpdir) / "row.pmtiles"
-        subprocess.run(
-            [
-                "tippecanoe", "-o", str(tmp),
-                "-l", cfg["layer"],
-                f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
-                *cfg["extra_args"],
-                str(geojson_path),
-            ],
-            check=True,
-        )
+        with phase("Running tippecanoe for ROW"):
+            subprocess.run(
+                [
+                    "tippecanoe", "-o", str(tmp),
+                    "-l", cfg["layer"],
+                    f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
+                    *cfg["extra_args"],
+                    str(geojson_path),
+                ],
+                check=True,
+            )
         size_mb = tmp.stat().st_size / 1_048_576
         print(f"  ROW PMTiles: {size_mb:.1f} MB")
         shutil.copyfile(str(tmp), str(pmtiles_path))
@@ -902,16 +932,17 @@ def run_build_peaks_pmtiles(
 
         pmtiles_tmp = tmp / "peaks.pmtiles"
         cfg = _load_pmtiles_config(PEAKS_PMTILES_CONFIG)
-        subprocess.run(
-            [
-                "tippecanoe", "-o", str(pmtiles_tmp),
-                "-l", cfg["layer"],
-                f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
-                *cfg["extra_args"],
-                str(geojsonseq),
-            ],
-            check=True,
-        )
+        with phase(f"Running tippecanoe for {total} peaks"):
+            subprocess.run(
+                [
+                    "tippecanoe", "-o", str(pmtiles_tmp),
+                    "-l", cfg["layer"],
+                    f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
+                    *cfg["extra_args"],
+                    str(geojsonseq),
+                ],
+                check=True,
+            )
         size_mb = pmtiles_tmp.stat().st_size / 1_048_576
         print(f"  Peaks PMTiles: {size_mb:.1f} MB, {total} waypoints")
         shutil.copyfile(str(pmtiles_tmp), str(pmtiles_dest))

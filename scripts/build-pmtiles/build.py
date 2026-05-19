@@ -125,7 +125,7 @@ def main() -> None:
         cwd=str(HERE),
     )
     elapsed = time.perf_counter() - t0
-    print(f"Total: {elapsed:.1f}s", file=sys.stderr)
+    print(f"\nTotal: {elapsed:.1f}s")
     sys.exit(result.returncode)
 
 

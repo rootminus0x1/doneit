@@ -37,13 +37,21 @@ export interface TileSource {
 export async function loadTileSources(token: string | null): Promise<TileSource[]> {
     if (!isReady(token)) return [];
     const rootId = await api.getRootFolderId(token);
-    const file = await api.findFileByName(token, 'tile-sources.json', rootId);
-    if (!file) throw new Error('tile-sources.json not found in data root');
+
+    // tile-sources.json lives in config/
+    const rootFolders = await api.listFolders(token, rootId);
+    const configFolder = rootFolders.find(f => f.name === 'config');
+    if (!configFolder) throw new Error('config/ folder not found in Drive');
+    const file = await api.findFileByName(token, 'tile-sources.json', configFolder.id);
+    if (!file) throw new Error('tile-sources.json not found in config/ folder');
     const text = await api.readFileText(token, file.id);
     const sources = JSON.parse(text) as TileSource[];
     if (!Array.isArray(sources) || sources.length === 0) {
         throw new Error('tile-sources.json is empty or not an array');
     }
+
+    // pmtiles-overlay files are in generated/
+    const generatedFolder = rootFolders.find(f => f.name === 'generated');
 
     const overlayEntries = sources.filter(s => s.type === 'pmtiles-overlay');
     console.log(`[tileConfig] tile-sources.json: ${sources.length} total, ${overlayEntries.length} overlay(s):`,
@@ -56,19 +64,21 @@ export async function loadTileSources(token: string | null): Promise<TileSource[
     const filenames = [
         ...new Set(sources.filter(s => s.type === 'pmtiles-overlay' && !s.fileId && s.filename).map(s => s.filename!)),
     ];
-    console.log(`[tileConfig] Resolving ${filenames.length} overlay filename(s) in rootId="${rootId}":`, filenames);
+    console.log(`[tileConfig] Resolving ${filenames.length} overlay filename(s) in generated/:`, filenames);
     const fileIdByName: Record<string, string> = {};
-    await Promise.all(
-        filenames.map(async name => {
-            const found = await api.findFileByName(token, name, rootId);
-            if (found) {
-                fileIdByName[name] = found.id;
-                console.log(`[tileConfig] ✓ "${name}" → fileId ${found.id}`);
-            } else {
-                console.warn(`[tileConfig] ✗ "${name}" not found in Drive folder (rootId="${rootId}") — overlay(s) using this file will be dropped`);
-            }
-        }),
-    );
+    if (generatedFolder) {
+        await Promise.all(
+            filenames.map(async name => {
+                const found = await api.findFileByName(token, name, generatedFolder.id);
+                if (found) {
+                    fileIdByName[name] = found.id;
+                    console.log(`[tileConfig] ✓ "${name}" → fileId ${found.id}`);
+                } else {
+                    console.warn(`[tileConfig] ✗ "${name}" not found in generated/ folder — overlay(s) using this file will be dropped`);
+                }
+            }),
+        );
+    }
 
     const resolved = sources
         .map(s => {

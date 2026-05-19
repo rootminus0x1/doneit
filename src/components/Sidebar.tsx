@@ -1,4 +1,5 @@
 import type { TrackCategory } from '../hooks/useDriveData';
+import type { SyncStatus, SyncProgress } from '../hooks/useSync';
 
 interface PeakCategory {
     name: string;
@@ -25,6 +26,11 @@ interface Props {
     indexGenerated: string | null;
     unindexedCount: number;
     zoom: number;
+    syncStatus: SyncStatus;
+    syncProgress: SyncProgress | null;
+    lastSynced: string | null;
+    onSync: () => void;
+    onCancelSync: () => void;
 }
 
 export function Sidebar({
@@ -44,6 +50,11 @@ export function Sidebar({
     indexGenerated,
     unindexedCount,
     zoom,
+    syncStatus,
+    syncProgress,
+    lastSynced,
+    onSync,
+    onCancelSync,
 }: Props) {
     return (
         <>
@@ -142,6 +153,33 @@ export function Sidebar({
                             </p>
                         )}
                         <p style={styles.meta}>Zoom: {zoom.toFixed(1)}</p>
+                    </Section>
+
+                    {/* Offline sync */}
+                    <Section label="Offline cache">
+                        {syncStatus === 'syncing' && syncProgress ? (
+                            <p style={styles.meta}>
+                                {syncProgress.currentFile} ({syncProgress.done}/{syncProgress.total})
+                            </p>
+                        ) : lastSynced ? (
+                            <p style={styles.meta}>Last synced: {lastSynced.slice(0, 10)}</p>
+                        ) : (
+                            <p style={styles.meta}>Not yet synced</p>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                            <button
+                                style={styles.syncBtn}
+                                onClick={onSync}
+                                disabled={syncStatus === 'syncing'}
+                            >
+                                {syncStatus === 'syncing' ? 'Syncing…' : 'Sync now'}
+                            </button>
+                            {syncStatus === 'syncing' && (
+                                <button style={styles.syncBtn} onClick={onCancelSync}>
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
                     </Section>
                 </div>
             </div>
@@ -252,4 +290,15 @@ const styles: Record<string, React.CSSProperties> = {
     count: { fontSize: 11, color: '#999', marginLeft: 'auto' },
     meta: { fontSize: 12, color: '#666', margin: '0 0 4px' },
     empty: { fontSize: 13, color: '#999', fontStyle: 'italic' },
+    syncBtn: {
+        padding: '5px 12px',
+        borderRadius: 14,
+        background: '#1a73e8',
+        color: '#fff',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 13,
+        fontWeight: 500,
+        opacity: 1,
+    },
 };

@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { toast, Toaster } from 'sonner';
 import { useGoogleAuth } from './hooks/useGoogleAuth';
 import { useDriveData } from './hooks/useDriveData';
 import { useTileSource } from './hooks/useTileSource';
@@ -8,8 +9,22 @@ import type { TrackPopupData } from './components/MapView';
 import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
 import { Sidebar } from './components/Sidebar';
-import { registerDrivePMTiles } from './lib/drivepmtiles';
+import { registerDrivePMTiles, upgradeToLocalPMTiles } from './lib/drivepmtiles';
+import { useSync } from './hooks/useSync';
 import { filenameToCategoryLabel } from './lib/gpxParser';
+
+function useErrorToast(error: string | null) {
+    const prev = useRef<string | null>(null);
+    useEffect(() => {
+        if (error && error !== prev.current) {
+            toast.error(error, {
+                duration: Infinity,
+                action: { label: 'Copy', onClick: () => navigator.clipboard.writeText(error) },
+            });
+        }
+        prev.current = error;
+    }, [error]);
+}
 
 const PEAK_COLORS = ['#f59e0b', '#6366f1', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -76,6 +91,14 @@ export default function App() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [flyToBbox, setFlyToBbox] = useState(null as null | import('./lib/gpxParser').TrackBbox);
     const [mapError, setMapError] = useState<string | null>(null);
+
+    const { syncState, startSync, cancelSync } = useSync(token);
+
+    useErrorToast(authError);
+    useErrorToast(driveError);
+    useErrorToast(loadError);
+    useErrorToast(mapError);
+    useErrorToast(syncState.error);
     const [bearing, setBearing] = useState(0);
     const [northTrigger, setNorthTrigger] = useState(0);
     const [hoverPeak, setHoverPeak] = useState<{
@@ -145,12 +168,17 @@ export default function App() {
     useEffect(() => {
         allSources
             .filter(s => (s.type === 'pmtiles-drive' || s.type === 'pmtiles-overlay') && s.fileId)
-            .forEach(s => registerDrivePMTiles(s.fileId!, () => tokenRef.current ?? ''));
+            .forEach(s => {
+                registerDrivePMTiles(s.fileId!, () => tokenRef.current ?? '');
+                void upgradeToLocalPMTiles(s.fileId!);
+            });
         if (tracksPmtilesFileId) {
             registerDrivePMTiles(tracksPmtilesFileId, () => tokenRef.current ?? '');
+            void upgradeToLocalPMTiles(tracksPmtilesFileId);
         }
         if (peaksPmtilesFileId) {
             registerDrivePMTiles(peaksPmtilesFileId, () => tokenRef.current ?? '');
+            void upgradeToLocalPMTiles(peaksPmtilesFileId);
         }
     }, [allSources, tracksPmtilesFileId, peaksPmtilesFileId]);
 
@@ -318,20 +346,14 @@ export default function App() {
 
             {token && !ready && <div style={styles.loadingBanner}>Loading…</div>}
 
-            {authError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{authError}</div>}
             {needsReauth && (
                 <div style={{ ...styles.loadingBanner, background: '#e65100', display: 'flex', gap: 10, alignItems: 'center', whiteSpace: 'normal' }}>
                     Session expired
                     <button style={styles.reconnectBtn} onClick={() => signIn()}>Reconnect</button>
                 </div>
             )}
-            {!needsReauth && driveError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{driveError}</div>}
-            {loadError && (
-                <div style={{ ...styles.loadingBanner, background: '#c62828' }}>Map config error: {loadError}</div>
-            )}
-            {mapError && (
-                <div style={{ ...styles.loadingBanner, background: '#c62828' }}>Map style error: {mapError}</div>
-            )}
+
+            <Toaster position="bottom-right" richColors expand offset={{ bottom: 40 }} />
 
             <div style={styles.coordDisplay}>
                 {formatCoord(mapCenter[1], mapCenter[0])}
@@ -356,6 +378,11 @@ export default function App() {
                 indexGenerated={trackIndex?.generated ?? null}
                 unindexedCount={unindexedFiles.length}
                 zoom={mapZoom}
+                syncStatus={syncState.status}
+                syncProgress={syncState.progress}
+                lastSynced={syncState.lastSynced}
+                onSync={startSync}
+                onCancelSync={cancelSync}
             />
 
             {popup && (

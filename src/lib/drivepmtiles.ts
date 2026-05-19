@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import { PMTiles, Protocol } from 'pmtiles';
 import { authExpiredEvent } from './authEvents';
+import { getLocalPMTilesFile } from './localCache';
 
 // Shared Protocol instance for the whole app lifetime.
 // Registered once here so both base-map tiles and overlay tiles
@@ -44,4 +45,30 @@ class DriveSource {
 export function registerDrivePMTiles(fileId: string, getToken: () => string): string {
     protocol.add(new PMTiles(new DriveSource(fileId, getToken)));
     return `pmtiles://${fileId}`;
+}
+
+class LocalPMTilesSource {
+    private readonly fileId: string;
+    private readonly file: File;
+
+    constructor(fileId: string, file: File) {
+        this.fileId = fileId;
+        this.file = file;
+    }
+
+    getKey(): string {
+        return this.fileId;
+    }
+
+    async getBytes(offset: number, length: number): Promise<{ data: ArrayBuffer }> {
+        return { data: await this.file.slice(offset, offset + length).arrayBuffer() };
+    }
+}
+
+// If a locally-cached copy of this PMTiles file exists in OPFS, re-register it
+// with the shared Protocol so subsequent tile fetches use the local file instead of Drive.
+export async function upgradeToLocalPMTiles(fileId: string): Promise<void> {
+    const file = await getLocalPMTilesFile(fileId);
+    if (!file) return;
+    protocol.add(new PMTiles(new LocalPMTilesSource(fileId, file)));
 }
