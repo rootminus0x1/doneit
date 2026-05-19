@@ -50,6 +50,7 @@ _ROW_DATASETS_URL = "https://www.rowmaps.com/datasets/"
 _ROW_ETAG_PATH = BUILD_DIR / "row-etags.json"
 _ROW_CACHE_DIR = BUILD_DIR / "row-cache"
 _ROW_TYPES = {1: "footpath", 2: "bridleway", 3: "restricted_byway", 4: "byway"}
+_ROW_KEEP = {"Name", "row_type", "authority_name", "length_km"}
 
 # ---------------------------------------------------------------------------
 # Timing helper
@@ -791,14 +792,23 @@ def fetch_row_geojson(output_path: Path) -> None:
                         new_etag["last_modified"] = resp.headers["Last-Modified"]
                     data = json.loads(resp.read())
                 features = data.get("features", [])
-                _strip = {"tessellate", "visibility", "Attribution", "extrude"}
                 for f in features:
                     p = f.setdefault("properties", {})
-                    p["row_type"] = row_type
-                    p["authority_code"] = code
-                    p["authority_name"] = name
-                    for k in _strip:
-                        p.pop(k, None)
+                    desc = p.get("Description", "")
+                    length_km: float | None = None
+                    if desc:
+                        parts = desc.split("|")
+                        if len(parts) >= 3:
+                            try:
+                                length_km = float(parts[2])
+                            except ValueError:
+                                pass
+                    keep: dict[str, object] = {"row_type": row_type, "authority_name": name}
+                    if "Name" in p:
+                        keep["Name"] = p["Name"]
+                    if length_km is not None:
+                        keep["length_km"] = length_km
+                    f["properties"] = keep
                 return code, type_num, "changed", features, new_etag or None
             except urllib.error.HTTPError as e:
                 if e.code == 304:
@@ -850,15 +860,42 @@ def fetch_row_geojson(output_path: Path) -> None:
                 if completed % 100 == 0 or completed == total:
                     log(f"{completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
 
+    # Strip KML artifacts from per-authority cache files written before _ROW_STRIP was applied.
+    # This makes the fix self-healing: the next run detects dirty caches, rewrites them, and
+    # updates row.geojson — so doit sees a changed target and rebuilds row.pmtiles.
+    stripped_from_cache: set[str] = set()
+    for code in sorted(authorities):
+        if code in changed_authorities:
+            continue  # already being rebuilt from fresh download
+        cache_file = _ROW_CACHE_DIR / f"{code}.json"
+        if not cache_file.exists():
+            continue
+        try:
+            cached = json.loads(cache_file.read_text())
+            if any(k not in _ROW_KEEP for f in cached for k in f.get("properties", {})):
+                for f in cached:
+                    p = f.get("properties", {})
+                    f["properties"] = {k: v for k, v in p.items() if k in _ROW_KEEP}
+                cache_file.write_text(json.dumps(cached, separators=(",", ":")))
+                stripped_from_cache.add(code)
+        except Exception:
+            pass
+    if stripped_from_cache:
+        log(f"Cleaned properties in {len(stripped_from_cache)} cached authority file(s)")
+        changed_authorities.update(stripped_from_cache)
+
     if not changed_authorities and not added_codes and not removed_codes:
         log(f"All {total} files unchanged — skipping output write")
         _ROW_ETAG_PATH.write_text(json.dumps(new_etags))
         return
 
-    # Load cached features for unchanged authorities, merge with newly downloaded ones
+    # Merge newly downloaded and cached features into row.geojson
     reasons: list[str] = []
-    if changed_authorities:
-        reasons.append(f"{len(changed_authorities)} changed")
+    server_changed = changed_authorities - stripped_from_cache
+    if server_changed:
+        reasons.append(f"{len(server_changed)} changed")
+    if stripped_from_cache:
+        reasons.append(f"{len(stripped_from_cache)} cache-stripped")
     if added_codes:
         reasons.append(f"{len(added_codes)} added")
     if removed_codes:
@@ -867,10 +904,12 @@ def fetch_row_geojson(output_path: Path) -> None:
     all_features: list[dict[str, Any]] = []
     for code in sorted(authorities):
         cache_file = _ROW_CACHE_DIR / f"{code}.json"
-        if code in changed_authorities:
-            features = new_features.get(code, [])
+        if code in new_features:
+            # Fresh download — write processed features to cache
+            features = new_features[code]
             cache_file.write_text(json.dumps(features, separators=(",", ":")))
         elif cache_file.exists():
+            # Either just stripped above, or genuinely unchanged — read from cache
             try:
                 features = json.loads(cache_file.read_text())
             except Exception:

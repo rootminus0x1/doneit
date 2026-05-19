@@ -404,15 +404,16 @@ export default function App() {
                     );
                 } else {
                     const p = feature.properties;
+                    title = p.Name ? String(p.Name) : feature.overlayLabel;
                     const rowType = p.row_type ? String(p.row_type).replace(/_/g, ' ') : null;
-                    const name = p.Name ? String(p.Name) : null;
-                    const description = p.Description ? String(p.Description) : null;
-                    title = String(p.authority_name ?? feature.overlayLabel);
+                    const authorityName = p.authority_name ? String(p.authority_name) : null;
+                    const lengthKm = p.length_km != null ? Number(p.length_km) : null;
+                    const typeLine = [rowType, lengthKm != null ? `${lengthKm.toFixed(2)} km` : null]
+                        .filter(Boolean).join(' · ');
                     body = (
                         <>
-                            {rowType && <div>{rowType}</div>}
-                            {name && <div>{name}</div>}
-                            {description && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{description}</div>}
+                            {typeLine && <div>{typeLine}</div>}
+                            {authorityName && <div>{authorityName}</div>}
                         </>
                     );
                 }
