@@ -52,7 +52,7 @@ function styleFor(source: TileSource): string | StyleSpecification {
     return source.type === 'raster' ? (buildRasterStyle(source) as StyleSpecification) : source.styleUrl!;
 }
 
-export interface TrackPopupData {
+interface TrackPopupData {
     displayName: string;
     trackType: string | null;
     filename: string;
@@ -61,6 +61,11 @@ export interface TrackPopupData {
     fileId: string | null;
     lengthKm: number | null;
 }
+
+export type PopupData =
+    | ({ kind: 'track' } & TrackPopupData)
+    | { kind: 'peak'; name: string; elevation: number; category: string; lat: number; lng: number }
+    | { kind: 'overlay'; overlayId: string; overlayLabel: string; properties: Record<string, unknown> };
 
 export interface LoadedPeaks {
     category: string;
@@ -94,10 +99,8 @@ interface Props {
     peakCategories: PeakCategory[];
     onBoundsChange: (bounds: TrackBbox) => void;
     onMove: (center: [number, number], zoom: number) => void;
-    onTrackClick: (data: TrackPopupData) => void;
-    onTrackHover: (data: TrackPopupData | null) => void;
-    onPeakClick: (name: string, elevation: number, category: string, lat: number, lng: number) => void;
-    onPeakHover?: (name: string, elevation: number, category: string, lat: number, lng: number) => void;
+    onFeatureClick: (data: PopupData) => void;
+    onFeatureHover: (data: PopupData | null) => void;
     baggedSet: Set<string>;
     onPeakHoverEnd?: () => void;
     onBearingChange?: (bearing: number) => void;
@@ -126,6 +129,37 @@ const overlayInnerLayerId = (id: string) => `overlay-${id}-inner`;
 // True on touch-only devices (phones/tablets with no mouse hover support).
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
 const IS_TOUCH = window.matchMedia('(hover: none)').matches;
+
+// Single point where MapLibre layer events are bound. All layer types use this so the
+// click/hover pattern can't diverge between tracks, peaks, and overlays.
+//
+// clickOnAll=true  (tracks, overlays): click fires on all devices; hover fires on non-touch.
+// clickOnAll=false (peaks):            click fires on touch only; hover fires on non-touch.
+function bindInteraction(
+    map: maplibregl.Map,
+    layerId: string,
+    getData: (e: { features?: maplibregl.MapGeoJSONFeature[] }) => PopupData | null,
+    clickRef: { current: (d: PopupData) => void },
+    hoverRef: { current: (d: PopupData | null) => void },
+    clickOnAll = true,
+): void {
+    if (clickOnAll || IS_TOUCH) {
+        map.on('click', layerId, e => {
+            const data = getData(e);
+            if (data) clickRef.current(data);
+        });
+    }
+    if (!IS_TOUCH) {
+        map.on('mouseenter', layerId, e => {
+            map.getCanvas().style.cursor = 'pointer';
+            hoverRef.current(getData(e));
+        });
+        map.on('mouseleave', layerId, () => {
+            map.getCanvas().style.cursor = '';
+            hoverRef.current(null);
+        });
+    }
+}
 
 // Scale peak icons with zoom: small at overview, full-size when zoomed in
 const PEAK_ICON_SIZE = ['interpolate', ['linear'], ['zoom'], 7, 0.4, 11, 0.9, 15, 1.5] as unknown as maplibregl.ExpressionSpecification;
@@ -208,11 +242,8 @@ export function MapView({
     peakCategories,
     onBoundsChange,
     onMove,
-    onTrackClick,
-    onTrackHover,
-    onPeakClick,
-    onPeakHover,
-    onPeakHoverEnd,
+    onFeatureClick,
+    onFeatureHover,
     onBearingChange,
     northTrigger,
     onError,
@@ -233,11 +264,8 @@ export function MapView({
     // Stable callback refs — updates never re-run the init effect
     const onBoundsChangeRef = useRef(onBoundsChange);
     const onMoveRef = useRef(onMove);
-    const onTrackClickRef = useRef(onTrackClick);
-    const onTrackHoverRef = useRef(onTrackHover);
-    const onPeakClickRef = useRef(onPeakClick);
-    const onPeakHoverRef = useRef(onPeakHover);
-    const onPeakHoverEndRef = useRef(onPeakHoverEnd);
+    const onFeatureClickRef = useRef(onFeatureClick);
+    const onFeatureHoverRef = useRef(onFeatureHover);
     const onBearingChangeRef = useRef(onBearingChange);
     const onErrorRef = useRef(onError);
     const onStyleLoadRef = useRef(onStyleLoad);
@@ -249,19 +277,10 @@ export function MapView({
         onMoveRef.current = onMove;
     });
     useEffect(() => {
-        onTrackClickRef.current = onTrackClick;
+        onFeatureClickRef.current = onFeatureClick;
     });
     useEffect(() => {
-        onTrackHoverRef.current = onTrackHover;
-    });
-    useEffect(() => {
-        onPeakClickRef.current = onPeakClick;
-    });
-    useEffect(() => {
-        onPeakHoverRef.current = onPeakHover;
-    });
-    useEffect(() => {
-        onPeakHoverEndRef.current = onPeakHoverEnd;
+        onFeatureHoverRef.current = onFeatureHover;
     });
     useEffect(() => {
         onBearingChangeRef.current = onBearingChange;
@@ -421,6 +440,28 @@ export function MapView({
                 : {};
             const minzoom = ov.overlayMinZoom !== undefined ? { minzoom: ov.overlayMinZoom } : {};
 
+            const makeData = (e: { features?: maplibregl.MapGeoJSONFeature[] }): OverlayFeatureData | null => {
+                const props = e.features?.[0]?.properties;
+                return props ? { overlayId: ov.id, overlayLabel: ov.label, properties: props } : null;
+            };
+            const bindEvents = (lid: string) => {
+                map.on('click', lid, e => {
+                    const data = makeData(e);
+                    if (data) onOverlayClickRef.current?.(data);
+                });
+                if (!IS_TOUCH) {
+                    map.on('mouseenter', lid, e => {
+                        map.getCanvas().style.cursor = 'pointer';
+                        const data = makeData(e);
+                        onOverlayHoverRef.current?.(data);
+                    });
+                    map.on('mouseleave', lid, () => {
+                        map.getCanvas().style.cursor = '';
+                        onOverlayHoverRef.current?.(null);
+                    });
+                }
+            };
+
             if (ov.lineStyle) {
                 const outerId = overlayOuterLayerId(ov.id);
                 const innerId = overlayInnerLayerId(ov.id);
@@ -434,6 +475,7 @@ export function MapView({
                             'line-opacity': ov.lineStyle.outerOpacity,
                         },
                     });
+                    bindEvents(outerId);
                 }
                 if (!map.getLayer(innerId)) {
                     map.addLayer({
@@ -445,6 +487,7 @@ export function MapView({
                             'line-opacity': 1,
                         },
                     });
+                    bindEvents(innerId);
                 }
             } else {
                 const layId = overlayLayerId(ov.id);
@@ -458,6 +501,7 @@ export function MapView({
                             'line-opacity': ov.overlayOpacity ?? 0.75,
                         },
                     });
+                    bindEvents(layId);
                 }
             }
         }
@@ -494,37 +538,16 @@ export function MapView({
                         ...(cat.dashArray ? { 'line-dasharray': cat.dashArray } : {}),
                     },
                 });
-                map.on('click', lid, e => {
-                    if (e.features?.[0])
-                        onTrackClickRef.current({
-                            displayName: track.displayName,
-                            trackType: track.trackType,
-                            filename: track.filename,
-                            datetime: track.datetime,
-                            linkText: track.linkText,
-                            fileId: track.fileId,
-                            lengthKm: null,
-                        });
-                });
-                if (!IS_TOUCH) {
-                    map.on('mouseenter', lid, e => {
-                        map.getCanvas().style.cursor = 'pointer';
-                        if (e.features?.[0])
-                            onTrackHoverRef.current({
-                                displayName: track.displayName,
-                                trackType: track.trackType,
-                                filename: track.filename,
-                                datetime: track.datetime,
-                                linkText: track.linkText,
-                                fileId: track.fileId,
-                                lengthKm: null,
-                            });
-                    });
-                    map.on('mouseleave', lid, () => {
-                        map.getCanvas().style.cursor = '';
-                        onTrackHoverRef.current(null);
-                    });
-                }
+                bindInteraction(map, lid, () => ({
+                    kind: 'track',
+                    displayName: track.displayName,
+                    trackType: track.trackType,
+                    filename: track.filename,
+                    datetime: track.datetime,
+                    linkText: track.linkText,
+                    fileId: track.fileId,
+                    lengthKm: null,
+                }), onFeatureClickRef, onFeatureHoverRef);
             }
         }
     }, [loadedTracks, categories, mapVersion]);

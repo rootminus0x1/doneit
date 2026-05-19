@@ -5,7 +5,7 @@ import { useDriveData } from './hooks/useDriveData';
 import { useTileSource } from './hooks/useTileSource';
 import { useUnindexedTracks } from './hooks/useViewportTracks';
 import { MapView } from './components/MapView';
-import type { TrackPopupData } from './components/MapView';
+import type { TrackPopupData, OverlayFeatureData } from './components/MapView';
 import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
 import { Sidebar } from './components/Sidebar';
@@ -116,6 +116,8 @@ export default function App() {
     } | null>(null);
     const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
     const [clickedTrack, setClickedTrack] = useState<TrackPopupData | null>(null);
+    const [hoverOverlay, setHoverOverlay] = useState<OverlayFeatureData | null>(null);
+    const [clickedOverlay, setClickedOverlay] = useState<OverlayFeatureData | null>(null);
 
 
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
@@ -248,6 +250,15 @@ export default function App() {
         setHoverTrack(data);
     }, []);
 
+    const handleOverlayClick = useCallback((data: OverlayFeatureData) => {
+        setClickedOverlay(data);
+        setHoverOverlay(null);
+    }, []);
+
+    const handleOverlayHover = useCallback((data: OverlayFeatureData | null) => {
+        setHoverOverlay(data);
+    }, []);
+
     const handlePeakClick = useCallback(
         (name: string, elevation: number, category: string, lat: number, lng: number) => {
             setPopup({
@@ -297,6 +308,8 @@ export default function App() {
                     onBoundsChange={() => {}}
                     onTrackClick={handleTrackClick}
                     onTrackHover={handleTrackHover}
+                    onOverlayClick={handleOverlayClick}
+                    onOverlayHover={handleOverlayHover}
                     onPeakClick={handlePeakClick}
                     onPeakHover={handlePeakHover}
                     onPeakHoverEnd={handlePeakHoverEnd}
@@ -448,6 +461,35 @@ export default function App() {
                     </div>
                 </div>
             )}
+
+            {(() => {
+                const overlayPopup = clickedOverlay ?? hoverOverlay;
+                const pinned = clickedOverlay !== null;
+                if (!overlayPopup) return null;
+                const p = overlayPopup.properties;
+                const title = String(p.authority_name ?? overlayPopup.overlayLabel);
+                const rowType = p.row_type ? String(p.row_type).replace(/_/g, ' ') : null;
+                const name = p.Name ? String(p.Name) : null;
+                const description = p.Description ? String(p.Description) : null;
+                return (
+                    <div
+                        style={pinned ? styles.popupOverlay : styles.hoverPopupContainer}
+                        onClick={pinned ? () => setClickedOverlay(null) : undefined}
+                    >
+                        <div style={{ ...styles.popup, pointerEvents: pinned ? 'auto' : 'none' }} onClick={e => e.stopPropagation()}>
+                            <div style={styles.popupTitle}>{title}</div>
+                            <div style={styles.popupBody}>
+                                {rowType && <div>{rowType}</div>}
+                                {name && <div>{name}</div>}
+                                {description && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{description}</div>}
+                            </div>
+                            {pinned && (
+                                <button style={styles.popupClose} onClick={() => setClickedOverlay(null)}>✕</button>
+                            )}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {(() => {
                 const trackPopup = clickedTrack ?? hoverTrack;

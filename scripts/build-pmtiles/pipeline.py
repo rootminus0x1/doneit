@@ -786,11 +786,14 @@ def fetch_row_geojson(output_path: Path) -> None:
                         new_etag["last_modified"] = resp.headers["Last-Modified"]
                     data = json.loads(resp.read())
                 features = data.get("features", [])
+                _strip = {"tessellate", "visibility", "Attribution", "extrude"}
                 for f in features:
                     p = f.setdefault("properties", {})
                     p["row_type"] = row_type
                     p["authority_code"] = code
                     p["authority_name"] = name
+                    for k in _strip:
+                        p.pop(k, None)
                 return code, type_num, "changed", features, new_etag or None
             except urllib.error.HTTPError as e:
                 if e.code == 304:
