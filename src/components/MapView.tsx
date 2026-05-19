@@ -440,26 +440,9 @@ export function MapView({
                 : {};
             const minzoom = ov.overlayMinZoom !== undefined ? { minzoom: ov.overlayMinZoom } : {};
 
-            const makeData = (e: { features?: maplibregl.MapGeoJSONFeature[] }): OverlayFeatureData | null => {
+            const getOverlayData = (e: { features?: maplibregl.MapGeoJSONFeature[] }): PopupData | null => {
                 const props = e.features?.[0]?.properties;
-                return props ? { overlayId: ov.id, overlayLabel: ov.label, properties: props } : null;
-            };
-            const bindEvents = (lid: string) => {
-                map.on('click', lid, e => {
-                    const data = makeData(e);
-                    if (data) onOverlayClickRef.current?.(data);
-                });
-                if (!IS_TOUCH) {
-                    map.on('mouseenter', lid, e => {
-                        map.getCanvas().style.cursor = 'pointer';
-                        const data = makeData(e);
-                        onOverlayHoverRef.current?.(data);
-                    });
-                    map.on('mouseleave', lid, () => {
-                        map.getCanvas().style.cursor = '';
-                        onOverlayHoverRef.current?.(null);
-                    });
-                }
+                return props ? { kind: 'overlay', overlayId: ov.id, overlayLabel: ov.label, properties: props } : null;
             };
 
             if (ov.lineStyle) {
@@ -475,7 +458,7 @@ export function MapView({
                             'line-opacity': ov.lineStyle.outerOpacity,
                         },
                     });
-                    bindEvents(outerId);
+                    bindInteraction(map, outerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef);
                 }
                 if (!map.getLayer(innerId)) {
                     map.addLayer({
@@ -487,7 +470,7 @@ export function MapView({
                             'line-opacity': 1,
                         },
                     });
-                    bindEvents(innerId);
+                    bindInteraction(map, innerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef);
                 }
             } else {
                 const layId = overlayLayerId(ov.id);
@@ -501,7 +484,7 @@ export function MapView({
                             'line-opacity': ov.overlayOpacity ?? 0.75,
                         },
                     });
-                    bindEvents(layId);
+                    bindInteraction(map, layId, getOverlayData, onFeatureClickRef, onFeatureHoverRef);
                 }
             }
         }
@@ -581,21 +564,10 @@ export function MapView({
                     ...(cat.dashArray ? { 'line-dasharray': cat.dashArray } : {}),
                 },
             });
-            map.on('click', lid, e => {
-                const props = e.features?.[0]?.properties;
-                if (props) onTrackClickRef.current(buildTrackPopup(props));
-            });
-            if (!IS_TOUCH) {
-                map.on('mouseenter', lid, e => {
-                    map.getCanvas().style.cursor = 'pointer';
-                    const props = e.features?.[0]?.properties;
-                    if (props) onTrackHoverRef.current(buildTrackPopup(props));
-                });
-                map.on('mouseleave', lid, () => {
-                    map.getCanvas().style.cursor = '';
-                    onTrackHoverRef.current(null);
-                });
-            }
+            bindInteraction(map, lid, e => {
+                const p = e.features?.[0]?.properties;
+                return p ? { kind: 'track', ...buildTrackPopup(p) } : null;
+            }, onFeatureClickRef, onFeatureHoverRef);
         }
     }, [tracksPmtilesFileId, categories, mapVersion]);
 
@@ -642,40 +614,12 @@ export function MapView({
                         'icon-allow-overlap': true,
                     },
                 });
-                if (IS_TOUCH) {
-                    map.on('click', lid, e => {
-                        const f = e.features?.[0];
-                        if (f) {
-                            const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                            onPeakClickRef.current(
-                                f.properties?.name ?? '',
-                                f.properties?.ele ?? 0,
-                                ps.category,
-                                coords[1],
-                                coords[0],
-                            );
-                        }
-                    });
-                } else {
-                    map.on('mouseenter', lid, e => {
-                        map.getCanvas().style.cursor = 'pointer';
-                        const f = e.features?.[0];
-                        if (f) {
-                            const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                            onPeakHoverRef.current?.(
-                                f.properties?.name ?? '',
-                                f.properties?.ele ?? 0,
-                                ps.category,
-                                coords[1],
-                                coords[0],
-                            );
-                        }
-                    });
-                    map.on('mouseleave', lid, () => {
-                        map.getCanvas().style.cursor = '';
-                        onPeakHoverEndRef.current?.();
-                    });
-                }
+                bindInteraction(map, lid, e => {
+                    const f = e.features?.[0];
+                    if (!f) return null;
+                    const [lng, lat] = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                    return { kind: 'peak', name: String(f.properties?.name ?? ''), elevation: Number(f.properties?.ele ?? 0), category: ps.category, lat, lng };
+                }, onFeatureClickRef, onFeatureHoverRef, false);
             }
         }
     }, [loadedPeaks, mapVersion]);
@@ -710,40 +654,12 @@ export function MapView({
                     'icon-allow-overlap': true,
                 },
             });
-            if (IS_TOUCH) {
-                map.on('click', lid, e => {
-                    const f = e.features?.[0];
-                    if (f) {
-                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakClickRef.current(
-                            f.properties?.name ?? '',
-                            f.properties?.ele ?? 0,
-                            pc.name,
-                            coords[1],
-                            coords[0],
-                        );
-                    }
-                });
-            } else {
-                map.on('mouseenter', lid, e => {
-                    map.getCanvas().style.cursor = 'pointer';
-                    const f = e.features?.[0];
-                    if (f) {
-                        const coords = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
-                        onPeakHoverRef.current?.(
-                            f.properties?.name ?? '',
-                            f.properties?.ele ?? 0,
-                            pc.name,
-                            coords[1],
-                            coords[0],
-                        );
-                    }
-                });
-                map.on('mouseleave', lid, () => {
-                    map.getCanvas().style.cursor = '';
-                    onPeakHoverEndRef.current?.();
-                });
-            }
+            bindInteraction(map, lid, e => {
+                const f = e.features?.[0];
+                if (!f) return null;
+                const [lng, lat] = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+                return { kind: 'peak', name: String(f.properties?.name ?? ''), elevation: Number(f.properties?.ele ?? 0), category: pc.name, lat, lng };
+            }, onFeatureClickRef, onFeatureHoverRef, false);
 
             const doneLid = `${lid}-done-tick`;
             if (!map.getLayer(doneLid)) {

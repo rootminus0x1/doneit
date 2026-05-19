@@ -9,7 +9,7 @@ export default defineConfig({
             reporter: ['text', ['text', { file: 'coverage-app.txt' }], 'lcov'],
             reportsDirectory: 'coverage',
             include: ['src/lib/**/*.ts'],
-            exclude: ['src/lib/driveApi.ts'],
+            exclude: ['src/lib/driveApi.ts', 'src/lib/localCache.ts'],
         },
     },
 });

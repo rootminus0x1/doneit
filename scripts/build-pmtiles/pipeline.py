@@ -72,6 +72,11 @@ def phase(label: str):
         print(f"{indent}{label} done (took {time.perf_counter() - t0:.1f}s)")
 
 
+def log(msg: str) -> None:
+    """Print msg indented to the current phase depth."""
+    print("  " * len(_phase_stack) + msg)
+
+
 # ---------------------------------------------------------------------------
 # Startup helpers (called explicitly by dodo.py, never at import time)
 # ---------------------------------------------------------------------------
@@ -161,7 +166,7 @@ def load_gpx_cache(cache_path: Path) -> dict[str, Any]:
             data = json.loads(cache_path.read_text())
             if data.get("version") == 1:
                 entries: dict[str, Any] = data.get("entries", {})
-                print(f"  {len(entries)} entries")
+                log(f"{len(entries)} entries")
                 return entries
     except Exception as e:
         print(f"Warning: could not read {cache_path.name}: {e}", file=sys.stderr)
@@ -296,11 +301,11 @@ def deploy_to_drive(pairs: list[tuple[Path, Path]]) -> None:
             if not src.exists():
                 continue
             if dst.exists() and md5(src) == md5(dst):
-                print(f"  unchanged: {src.name}")
+                log(f"unchanged: {src.name}")
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(str(src), str(dst))
-            print(f"  deployed:  {src.name}")
+            log(f"deployed:  {src.name}")
 
 
 def _lookup_country(gdf: Any, sindex: Any, lng: float, lat: float) -> str | None:
@@ -434,7 +439,7 @@ def detect_baggings_for_new_tracks(
 
         if matched_by_category:
             total = sum(len(v) for v in matched_by_category.values())
-            print(f"  {filename}: {total} peak(s) matched")
+            log(f"{filename}: {total} peak(s) matched")
             results.append({
                 "track": filename,
                 "date": date,
@@ -494,8 +499,8 @@ def run_parse_and_bag_tracks(
             except OSError:
                 pass
     skipped = len(all_gpx) - md5_reads
-    print(f"  {len(to_parse)} of {len(all_gpx)} track(s) changed"
-          f" — {skipped} skipped by mtime, {md5_reads} read ({time.perf_counter() - t0:.1f}s)")
+    log(f"{len(to_parse)} of {len(all_gpx)} track(s) changed"
+        f" — {skipped} skipped by mtime, {md5_reads} read ({time.perf_counter() - t0:.1f}s)")
 
     # --- Phase 2: load peaks (before early-return so a peaks-only change triggers re-bag) ---
     all_peaks: dict[str, list[dict[str, Any]]] = {}
@@ -506,7 +511,7 @@ def run_parse_and_bag_tracks(
         for peak_filename, gvfs_path in sorted(peaks_gpx_files.items()):
             category = peak_filename[:-4].lower()
             all_peaks[category] = parse_gpx_waypoints(gvfs_path, peak_filename)
-        print(f"  peaks loaded ({time.perf_counter() - t1:.1f}s)")
+        log(f"peaks loaded ({time.perf_counter() - t1:.1f}s)")
 
         for category, waypoints in sorted(all_peaks.items()):
             seen: dict[str, int] = {}
@@ -527,22 +532,22 @@ def run_parse_and_bag_tracks(
         ]
         full_rebag = False
         if peaks_index.get("peak_hash") != peak_hash:
-            print("  peaks content changed — triggering full re-bag")
+            log("peaks content changed — triggering full re-bag")
             full_rebag = True
         elif peaks_index.get("bag_distance") != bag_distance_m:
-            print(f"  bag distance changed to {bag_distance_m} m — triggering full re-bag")
+            log(f"bag distance changed to {bag_distance_m} m — triggering full re-bag")
             full_rebag = True
         peaks_index["peak_hash"] = peak_hash
         peaks_index["bag_distance"] = bag_distance_m
 
     if not to_parse and not full_rebag:
-        print(f"  nothing to do")
+        log("nothing to do")
         return cache
 
     # --- Phase 3: parse new/changed tracks ---
     if to_parse:
         t2 = time.perf_counter()
-        print(f"Parsing {len(to_parse)} new/changed track(s) ...")
+        log(f"Parsing {len(to_parse)} new/changed track(s) ...")
         new_metas = extract_gpx_metadata_batch([p for _, _, p, _ in to_parse])
         for (cat, fn, path, md5), meta in zip(to_parse, new_metas):
             key = f"{cat}/{fn}"
@@ -553,13 +558,13 @@ def run_parse_and_bag_tracks(
             except OSError:
                 pass
             cache[key] = {"md5": md5, "mtime": mtime, "meta": meta, "tracks": tracks_coords}
-            print(f"  cached {key}")
-        print(f"  parsed in {time.perf_counter() - t2:.1f}s")
+            log(f"cached {key}")
+        log(f"parsed in {time.perf_counter() - t2:.1f}s")
 
     # --- Phase 4: bagging ---
     if peaks_gpx_files and peaks_index_path and peaks_index is not None:
         if full_rebag:
-            print(f"Re-running bagging detection for all {len(cache)} cached tracks ...")
+            log(f"Re-running bagging detection for all {len(cache)} cached tracks ...")
             peaks_index["bagged"] = []
             new_tracks: list[tuple[str, str | None, list[list[float]]]] = []
             for key, entry in sorted(cache.items()):
@@ -588,13 +593,13 @@ def run_parse_and_bag_tracks(
 
         if new_tracks:
             t3 = time.perf_counter()
-            print(f"Checking {len(new_tracks)} track(s) against all peaks ...")
+            log(f"Checking {len(new_tracks)} track(s) against all peaks ...")
             new_bagged = detect_baggings_for_new_tracks(new_tracks, all_peaks, bag_distance_m)
             if new_bagged:
                 total = sum(sum(len(p["names"]) for p in e["peaks"]) for e in new_bagged)
-                print(f"  {total} peak(s) bagged across {len(new_bagged)} track(s)")
+                log(f"{total} peak(s) bagged across {len(new_bagged)} track(s)")
                 peaks_index.setdefault("bagged", []).extend(new_bagged)
-            print(f"  bagging detection in {time.perf_counter() - t3:.1f}s")
+            log(f"bagging detection in {time.perf_counter() - t3:.1f}s")
 
         save_peaks_index(peaks_index_path, peaks_index)
 
@@ -676,7 +681,7 @@ def run_build_tracks(
                 check=True,
             )
         size_mb = pmtiles_tmp.stat().st_size / 1_048_576
-        print(f"  Tracks PMTiles: {size_mb:.1f} MB")
+        log(f"Tracks PMTiles: {size_mb:.1f} MB")
         shutil.copyfile(str(pmtiles_tmp), str(pmtiles_dest))
 
     index_data: dict[str, Any] = {
@@ -685,7 +690,7 @@ def run_build_tracks(
         "tracks": index_entries,
     }
     index_dest.write_text(json.dumps(index_data, indent=2, default=str))
-    print(f"  tracks-index.json: {len(index_entries)} tracks")
+    log(f"tracks-index.json: {len(index_entries)} tracks")
 
 
 # ---------------------------------------------------------------------------
@@ -752,9 +757,9 @@ def fetch_row_geojson(output_path: Path) -> None:
     added_codes = set(authorities) - cached_codes
     removed_codes = cached_codes - set(authorities)
     if added_codes:
-        print(f"  New authorit(ies) since last fetch: {', '.join(sorted(added_codes))}")
+        log(f"New authorit(ies) since last fetch: {', '.join(sorted(added_codes))}")
     if removed_codes:
-        print(f"  Removed authorit(ies) since last fetch: {', '.join(sorted(removed_codes))}")
+        log(f"Removed authorit(ies) since last fetch: {', '.join(sorted(removed_codes))}")
         # Drop stale ETag entries so they don't accumulate
         for key in list(etags):
             if key.split("/")[0] in removed_codes:
@@ -843,10 +848,10 @@ def fetch_row_geojson(output_path: Path) -> None:
                 elif status == "error":
                     errors += 1
                 if completed % 100 == 0 or completed == total:
-                    print(f"  {completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
+                    log(f"{completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
 
     if not changed_authorities and not added_codes and not removed_codes:
-        print(f"  All {total} files unchanged — skipping output write")
+        log(f"All {total} files unchanged — skipping output write")
         _ROW_ETAG_PATH.write_text(json.dumps(new_etags))
         return
 
@@ -858,7 +863,7 @@ def fetch_row_geojson(output_path: Path) -> None:
         reasons.append(f"{len(added_codes)} added")
     if removed_codes:
         reasons.append(f"{len(removed_codes)} removed")
-    print(f"  Rebuilding ({', '.join(reasons)}) ...")
+    log(f"Rebuilding ({', '.join(reasons)}) ...")
     all_features: list[dict[str, Any]] = []
     for code in sorted(authorities):
         cache_file = _ROW_CACHE_DIR / f"{code}.json"
@@ -878,7 +883,7 @@ def fetch_row_geojson(output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(geojson, separators=(",", ":")))
     _ROW_ETAG_PATH.write_text(json.dumps(new_etags))
-    print(f"  Wrote {len(all_features)} ROW features to {output_path.name}")
+    log(f"Wrote {len(all_features)} ROW features to {output_path.name}")
 
 
 def run_build_row_pmtiles(geojson_path: Path, pmtiles_path: Path) -> None:
@@ -898,7 +903,7 @@ def run_build_row_pmtiles(geojson_path: Path, pmtiles_path: Path) -> None:
                 check=True,
             )
         size_mb = tmp.stat().st_size / 1_048_576
-        print(f"  ROW PMTiles: {size_mb:.1f} MB")
+        log(f"ROW PMTiles: {size_mb:.1f} MB")
         shutil.copyfile(str(tmp), str(pmtiles_path))
 
 
@@ -927,10 +932,10 @@ def run_build_peaks_pmtiles(
                         },
                     }) + "\n")
                     total += 1
-                print(f"  {category}: {len(waypoints)} waypoints")
+                log(f"{category}: {len(waypoints)} waypoints")
 
         if total == 0:
-            print("No waypoints found — skipping peaks PMTiles")
+            log("No waypoints found — skipping peaks PMTiles")
             return
 
         pmtiles_tmp = tmp / "peaks.pmtiles"
@@ -947,5 +952,5 @@ def run_build_peaks_pmtiles(
                 check=True,
             )
         size_mb = pmtiles_tmp.stat().st_size / 1_048_576
-        print(f"  Peaks PMTiles: {size_mb:.1f} MB, {total} waypoints")
+        log(f"Peaks PMTiles: {size_mb:.1f} MB, {total} waypoints")
         shutil.copyfile(str(pmtiles_tmp), str(pmtiles_dest))

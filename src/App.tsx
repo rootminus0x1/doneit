@@ -5,7 +5,7 @@ import { useDriveData } from './hooks/useDriveData';
 import { useTileSource } from './hooks/useTileSource';
 import { useUnindexedTracks } from './hooks/useViewportTracks';
 import { MapView } from './components/MapView';
-import type { TrackPopupData, OverlayFeatureData } from './components/MapView';
+import type { PopupData } from './components/MapView';
 import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
 import { Sidebar } from './components/Sidebar';
@@ -101,23 +101,9 @@ export default function App() {
     useErrorToast(syncState.error);
     const [bearing, setBearing] = useState(0);
     const [northTrigger, setNorthTrigger] = useState(0);
-    const [hoverPeak, setHoverPeak] = useState<{
-        name: string;
-        elevation: number;
-        category: string;
-        lat: number;
-        lng: number;
-    } | null>(null);
     const lastGoodSourceIdRef = useRef<string | null>(null);
-    const [popup, setPopup] = useState<{
-        title: string;
-        body: string;
-        peakMeta?: { name: string; category: string; lat: number; lng: number; ele: number };
-    } | null>(null);
-    const [hoverTrack, setHoverTrack] = useState<TrackPopupData | null>(null);
-    const [clickedTrack, setClickedTrack] = useState<TrackPopupData | null>(null);
-    const [hoverOverlay, setHoverOverlay] = useState<OverlayFeatureData | null>(null);
-    const [clickedOverlay, setClickedOverlay] = useState<OverlayFeatureData | null>(null);
+    const [hoveredFeature, setHoveredFeature] = useState<PopupData | null>(null);
+    const [clickedFeature, setClickedFeature] = useState<PopupData | null>(null);
 
 
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
@@ -241,43 +227,14 @@ export default function App() {
         return counts;
     }, [baggedSet]);
 
-    const handleTrackClick = useCallback((data: TrackPopupData) => {
-        setClickedTrack(data);
-        setHoverTrack(null);
+    const handleFeatureClick = useCallback((data: PopupData) => {
+        setClickedFeature(data);
+        setHoveredFeature(null);
     }, []);
 
-    const handleTrackHover = useCallback((data: TrackPopupData | null) => {
-        setHoverTrack(data);
+    const handleFeatureHover = useCallback((data: PopupData | null) => {
+        setHoveredFeature(data);
     }, []);
-
-    const handleOverlayClick = useCallback((data: OverlayFeatureData) => {
-        setClickedOverlay(data);
-        setHoverOverlay(null);
-    }, []);
-
-    const handleOverlayHover = useCallback((data: OverlayFeatureData | null) => {
-        setHoverOverlay(data);
-    }, []);
-
-    const handlePeakClick = useCallback(
-        (name: string, elevation: number, category: string, lat: number, lng: number) => {
-            setPopup({
-                title: name,
-                body: `${category}  ·  ${Math.round(elevation).toLocaleString()} m  ·  ${formatCoord(lat, lng)}`,
-                peakMeta: { name, category, lat, lng, ele: elevation },
-            });
-        },
-        [],
-    );
-
-    const handlePeakHover = useCallback(
-        (name: string, elevation: number, category: string, lat: number, lng: number) => {
-            setHoverPeak({ name, elevation, category, lat, lng });
-        },
-        [],
-    );
-
-    const handlePeakHoverEnd = useCallback(() => setHoverPeak(null), []);
 
     const handleStyleLoad = useCallback((sourceId: string) => {
         lastGoodSourceIdRef.current = sourceId;
@@ -306,13 +263,8 @@ export default function App() {
                     loadedPeaks={loadedPeaks}
                     overlays={overlays}
                     onBoundsChange={() => {}}
-                    onTrackClick={handleTrackClick}
-                    onTrackHover={handleTrackHover}
-                    onOverlayClick={handleOverlayClick}
-                    onOverlayHover={handleOverlayHover}
-                    onPeakClick={handlePeakClick}
-                    onPeakHover={handlePeakHover}
-                    onPeakHoverEnd={handlePeakHoverEnd}
+                    onFeatureClick={handleFeatureClick}
+                    onFeatureHover={handleFeatureHover}
                     onBearingChange={setBearing}
                     northTrigger={northTrigger}
                     onError={msg => setMapError(msg)}
@@ -398,126 +350,86 @@ export default function App() {
                 onCancelSync={cancelSync}
             />
 
-            {popup && (
-                <div style={styles.popupOverlay} onClick={() => setPopup(null)}>
-                    <div style={styles.popup} onClick={e => e.stopPropagation()}>
-                        <div style={styles.popupTitle}>{popup.title}</div>
-                        {popup.body && <div style={styles.popupBody}>{popup.body}</div>}
-                        {popup.peakMeta &&
-                            (() => {
-                                const meta = popup.peakMeta!;
-                                const key = `${meta.category}:${meta.name}`;
-                                if (!baggedSet.has(key)) return null;
-                                const dates = baggedTracks
-                                    .filter(bt =>
-                                        bt.peaks.some(
-                                            bp => bp.category === meta.category && bp.names.includes(meta.name),
-                                        ),
-                                    )
-                                    .map(bt => bt.date)
-                                    .filter((d): d is string => d !== null)
-                                    .sort()
-                                    .map(formatDate);
-                                return (
-                                    <div style={styles.popupBaggedDate}>
-                                        ✔ Bagged{dates.length > 0 ? `: ${dates.join(', ')}` : ''}
-                                    </div>
-                                );
-                            })()}
-                        <button style={styles.popupClose} onClick={() => setPopup(null)}>
-                            ✕
-                        </button>
-                    </div>
-                </div>
-            )}
+            {(() => {
+                const feature = clickedFeature ?? hoveredFeature;
+                const pinned = clickedFeature !== null;
+                if (!feature) return null;
 
-            {hoverPeak && !hoverTrack && !clickedTrack && (
-                <div style={styles.hoverPopupContainer}>
-                    <div style={{ ...styles.popup, pointerEvents: 'none' }}>
-                        <div style={styles.popupTitle}>{hoverPeak.name}</div>
-                        <div style={styles.popupBody}>
-                            {hoverPeak.category} · {Math.round(hoverPeak.elevation).toLocaleString()} m ·{' '}
-                            {formatCoord(hoverPeak.lat, hoverPeak.lng)}
-                        </div>
-                        {(() => {
-                            const key = `${hoverPeak.category}:${hoverPeak.name}`;
-                            if (!baggedSet.has(key)) return null;
-                            const dates = baggedTracks
-                                .filter(bt =>
-                                    bt.peaks.some(
-                                        bp => bp.category === hoverPeak.category && bp.names.includes(hoverPeak.name),
-                                    ),
-                                )
-                                .map(bt => bt.date)
-                                .filter((d): d is string => d !== null)
-                                .sort()
-                                .map(formatDate);
-                            return (
+                let title: string;
+                let body: React.ReactNode;
+
+                if (feature.kind === 'track') {
+                    const bagged = baggedTracks.find(bt => bt.track === feature.filename);
+                    const baggedNames = bagged ? bagged.peaks.flatMap(bp => bp.names) : [];
+                    title = feature.displayName;
+                    body = (
+                        <>
+                            {feature.trackType && <div>{feature.trackType}</div>}
+                            <div>{feature.filename}</div>
+                            {feature.datetime && <div>{formatDatetime(feature.datetime)}</div>}
+                            {feature.lengthKm !== null && <div>{feature.lengthKm.toFixed(1)} km</div>}
+                            {feature.linkText && <div>{feature.linkText}</div>}
+                            {baggedNames.length > 0 && (
+                                <div style={{ marginTop: 4 }}>✔ {baggedNames.join(', ')}</div>
+                            )}
+                        </>
+                    );
+                } else if (feature.kind === 'peak') {
+                    const key = `${feature.category}:${feature.name}`;
+                    const dates = baggedSet.has(key)
+                        ? baggedTracks
+                              .filter(bt =>
+                                  bt.peaks.some(
+                                      bp => bp.category === feature.category && bp.names.includes(feature.name),
+                                  ),
+                              )
+                              .map(bt => bt.date)
+                              .filter((d): d is string => d !== null)
+                              .sort()
+                              .map(formatDate)
+                        : null;
+                    title = feature.name;
+                    body = (
+                        <>
+                            <div>
+                                {feature.category} · {Math.round(feature.elevation).toLocaleString()} m ·{' '}
+                                {formatCoord(feature.lat, feature.lng)}
+                            </div>
+                            {dates !== null && (
                                 <div style={styles.popupBaggedDate}>
                                     ✔ Bagged{dates.length > 0 ? `: ${dates.join(', ')}` : ''}
                                 </div>
-                            );
-                        })()}
-                    </div>
-                </div>
-            )}
-
-            {(() => {
-                const overlayPopup = clickedOverlay ?? hoverOverlay;
-                const pinned = clickedOverlay !== null;
-                if (!overlayPopup) return null;
-                const p = overlayPopup.properties;
-                const title = String(p.authority_name ?? overlayPopup.overlayLabel);
-                const rowType = p.row_type ? String(p.row_type).replace(/_/g, ' ') : null;
-                const name = p.Name ? String(p.Name) : null;
-                const description = p.Description ? String(p.Description) : null;
-                return (
-                    <div
-                        style={pinned ? styles.popupOverlay : styles.hoverPopupContainer}
-                        onClick={pinned ? () => setClickedOverlay(null) : undefined}
-                    >
-                        <div style={{ ...styles.popup, pointerEvents: pinned ? 'auto' : 'none' }} onClick={e => e.stopPropagation()}>
-                            <div style={styles.popupTitle}>{title}</div>
-                            <div style={styles.popupBody}>
-                                {rowType && <div>{rowType}</div>}
-                                {name && <div>{name}</div>}
-                                {description && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{description}</div>}
-                            </div>
-                            {pinned && (
-                                <button style={styles.popupClose} onClick={() => setClickedOverlay(null)}>✕</button>
                             )}
-                        </div>
-                    </div>
-                );
-            })()}
+                        </>
+                    );
+                } else {
+                    const p = feature.properties;
+                    const rowType = p.row_type ? String(p.row_type).replace(/_/g, ' ') : null;
+                    const name = p.Name ? String(p.Name) : null;
+                    const description = p.Description ? String(p.Description) : null;
+                    title = String(p.authority_name ?? feature.overlayLabel);
+                    body = (
+                        <>
+                            {rowType && <div>{rowType}</div>}
+                            {name && <div>{name}</div>}
+                            {description && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{description}</div>}
+                        </>
+                    );
+                }
 
-            {(() => {
-                const trackPopup = clickedTrack ?? hoverTrack;
-                const pinned = clickedTrack !== null;
-                if (!trackPopup) return null;
-                const bagged = baggedTracks.find(bt => bt.track === trackPopup.filename);
-                const baggedNames = bagged ? bagged.peaks.flatMap(bp => bp.names) : [];
                 return (
                     <div
                         style={pinned ? styles.popupOverlay : styles.hoverPopupContainer}
-                        onClick={pinned ? () => setClickedTrack(null) : undefined}
+                        onClick={pinned ? () => setClickedFeature(null) : undefined}
                     >
-                        <div style={styles.popup} onClick={e => e.stopPropagation()}>
-                            <div style={styles.popupTitle}>{trackPopup.displayName}</div>
-                            <div style={styles.popupBody}>
-                                {trackPopup.trackType && <div>{trackPopup.trackType}</div>}
-                                <div>{trackPopup.filename}</div>
-                                {trackPopup.datetime && <div>{formatDatetime(trackPopup.datetime)}</div>}
-                                {trackPopup.lengthKm !== null && <div>{trackPopup.lengthKm.toFixed(1)} km</div>}
-                                {trackPopup.linkText && <div>{trackPopup.linkText}</div>}
-                                {baggedNames.length > 0 && (
-                                    <div style={{ marginTop: 4 }}>✔ {baggedNames.join(', ')}</div>
-                                )}
-                            </div>
+                        <div
+                            style={{ ...styles.popup, pointerEvents: pinned ? 'auto' : 'none' }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div style={styles.popupTitle}>{title}</div>
+                            <div style={styles.popupBody}>{body}</div>
                             {pinned && (
-                                <button style={styles.popupClose} onClick={() => setClickedTrack(null)}>
-                                    ✕
-                                </button>
+                                <button style={styles.popupClose} onClick={() => setClickedFeature(null)}>✕</button>
                             )}
                         </div>
                     </div>
