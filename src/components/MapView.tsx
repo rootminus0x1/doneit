@@ -330,6 +330,14 @@ export function MapView({
             }
         });
 
+        // Suppress "Image X could not be loaded" warnings from base map styles that
+        // reference sprite icons their own sprite sheet doesn't include.
+        map.on('styleimagemissing', (e: { id: string }) => {
+            if (!map.hasImage(e.id)) {
+                map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
+            }
+        });
+
         // style.load fires on initial load AND after every setStyle call
         map.on('style.load', () => {
             styleLoadedRef.current = true;

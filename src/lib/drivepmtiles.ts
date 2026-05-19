@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import { PMTiles, Protocol } from 'pmtiles';
+import { authExpiredEvent } from './authEvents';
 
 // Shared Protocol instance for the whole app lifetime.
 // Registered once here so both base-map tiles and overlay tiles
@@ -30,6 +31,7 @@ class DriveSource {
             },
             signal,
         });
+        if (res.status === 401) { authExpiredEvent.emit(); throw new Error('Drive PMTiles fetch failed: HTTP 401'); }
         if (!res.ok) throw new Error(`Drive PMTiles fetch failed: HTTP ${res.status}`);
         return { data: await res.arrayBuffer() };
     }

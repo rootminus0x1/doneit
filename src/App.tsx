@@ -36,7 +36,7 @@ function formatDate(date: string): string {
 }
 
 export default function App() {
-    const { token, signIn, signOut, error: authError } = useGoogleAuth();
+    const { token, signIn, signOut, error: authError, needsReauth } = useGoogleAuth();
     const {
         ready,
         error: driveError,
@@ -54,13 +54,21 @@ export default function App() {
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
 
-    const savedCenter = useRef<[number, number]>([-4.0, 57.0]);
-    const savedZoom = useRef<number>(7);
-    const [mapCenter, setMapCenter] = useState<[number, number]>([-4.0, 57.0]);
-    const [mapZoom, setMapZoom] = useState<number>(7);
+    let initCenter: [number, number] = [-4.0, 57.0];
+    try {
+        const s = localStorage.getItem('doneit-map-center');
+        if (s) initCenter = JSON.parse(s) as [number, number];
+    } catch { /* ignore */ }
+    const initZoom = parseFloat(localStorage.getItem('doneit-map-zoom') ?? '') || 7;
+    const savedCenter = useRef<[number, number]>(initCenter);
+    const savedZoom = useRef<number>(initZoom);
+    const [mapCenter, setMapCenter] = useState<[number, number]>(savedCenter.current);
+    const [mapZoom, setMapZoom] = useState<number>(savedZoom.current);
     const handleMove = useCallback((center: [number, number], zoom: number) => {
         savedCenter.current = center;
         savedZoom.current = zoom;
+        localStorage.setItem('doneit-map-center', JSON.stringify(center));
+        localStorage.setItem('doneit-map-zoom', String(zoom));
         setMapCenter(center);
         setMapZoom(zoom);
     }, []);
@@ -311,7 +319,13 @@ export default function App() {
             {token && !ready && <div style={styles.loadingBanner}>Loading…</div>}
 
             {authError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{authError}</div>}
-            {driveError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{driveError}</div>}
+            {needsReauth && (
+                <div style={{ ...styles.loadingBanner, background: '#e65100', display: 'flex', gap: 10, alignItems: 'center', whiteSpace: 'normal' }}>
+                    Session expired
+                    <button style={styles.reconnectBtn} onClick={() => signIn()}>Reconnect</button>
+                </div>
+            )}
+            {!needsReauth && driveError && <div style={{ ...styles.loadingBanner, background: '#c62828' }}>{driveError}</div>}
             {loadError && (
                 <div style={{ ...styles.loadingBanner, background: '#c62828' }}>Map config error: {loadError}</div>
             )}
@@ -540,6 +554,17 @@ const styles: Record<string, React.CSSProperties> = {
         color: '#888',
     },
     popupBaggedDate: { fontSize: 13, color: '#2e7d32', marginTop: 6 },
+    reconnectBtn: {
+        padding: '4px 12px',
+        borderRadius: 14,
+        background: '#fff',
+        color: '#e65100',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: 13,
+        fontWeight: 600,
+        flexShrink: 0,
+    },
     coordDisplay: {
         position: 'absolute',
         bottom: 8,

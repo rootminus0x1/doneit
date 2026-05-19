@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, isReady } from '../lib/dataApi';
+import { DriveAuthError } from '../lib/driveApi'; // used only to suppress error display (reconnect banner handles it)
 import { parsePeaksGpx, filenameToCategoryLabel } from '../lib/gpxParser';
 import type { TrackIndex } from '../lib/spatialIndex';
 import type { ParsedPeaks } from '../lib/gpxParser';
@@ -241,7 +242,9 @@ export function useDriveData(token: string | null): DriveDataState {
                 }
                 setUnindexedFiles(unindexed);
             } catch (err: unknown) {
-                setError(err instanceof Error ? err.message : String(err));
+                if (!(err instanceof DriveAuthError)) {
+                    setError(err instanceof Error ? err.message : String(err));
+                }
             } finally {
                 setReady(true);
             }
@@ -252,6 +255,7 @@ export function useDriveData(token: string | null): DriveDataState {
     useEffect(() => {
         if (!isReady(token)) {
             setReady(false);
+            setError(null);
             setTrackIndex(null);
             setCategories([]);
             setPeakSets([]);

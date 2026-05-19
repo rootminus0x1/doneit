@@ -10,7 +10,10 @@ export function useTileSource(token: string | null) {
     const [loadError, setLoadError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!isReady(token)) return;
+        if (!isReady(token)) {
+            setSources([]);
+            return;
+        }
         setLoadError(null);
         loadTileSources(token)
             .then(loaded => {

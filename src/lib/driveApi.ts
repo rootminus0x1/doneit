@@ -1,6 +1,22 @@
+import { authExpiredEvent } from './authEvents';
+
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 export const DRIVE_FOLDER = 'DoneIt';
+const TIMEOUT_MS = 30_000;
+
+export class DriveAuthError extends Error {
+    constructor() {
+        super('Google Drive session expired — please reconnect');
+        this.name = 'DriveAuthError';
+        authExpiredEvent.emit();
+    }
+}
+
+async function assertOk(res: Response): Promise<void> {
+    if (res.status === 401) throw new DriveAuthError();
+    if (!res.ok) throw new Error(`Drive API error ${res.status}: ${await res.text()}`);
+}
 
 export interface DriveFile {
     id: string;
@@ -9,15 +25,32 @@ export interface DriveFile {
     size?: string;
 }
 
+function driveSignal(): AbortSignal {
+    return AbortSignal.timeout(TIMEOUT_MS);
+}
+
+function timeoutMessage(err: unknown): string {
+    if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        return 'Google Drive request timed out — check your connection';
+    }
+    return err instanceof Error ? err.message : String(err);
+}
+
 async function request<T>(url: string, token: string | null, options?: RequestInit): Promise<T> {
-    const res = await fetch(url, {
-        ...options,
-        headers: {
-            Authorization: `Bearer ${token}`,
-            ...(options?.headers ?? {}),
-        },
-    });
-    if (!res.ok) throw new Error(`Drive API error ${res.status}: ${await res.text()}`);
+    let res: Response;
+    try {
+        res = await fetch(url, {
+            ...options,
+            signal: driveSignal(),
+            headers: {
+                Authorization: `Bearer ${token}`,
+                ...(options?.headers ?? {}),
+            },
+        });
+    } catch (err) {
+        throw new Error(timeoutMessage(err));
+    }
+    await assertOk(res);
     return res.json() as Promise<T>;
 }
 
@@ -46,10 +79,16 @@ export async function listFolders(token: string | null, parentId: string): Promi
 }
 
 export async function readFileText(token: string | null, fileId: string): Promise<string> {
-    const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(`Drive read error ${res.status}`);
+    let res: Response;
+    try {
+        res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
+            signal: driveSignal(),
+            headers: { Authorization: `Bearer ${token}` },
+        });
+    } catch (err) {
+        throw new Error(timeoutMessage(err));
+    }
+    await assertOk(res);
     return res.text();
 }
 
@@ -95,15 +134,21 @@ export async function upsertJsonFile(
     const body = JSON.stringify(content, null, 2);
 
     if (existing) {
-        const res = await fetch(`${UPLOAD_API}/files/${existing.id}?uploadType=media`, {
-            method: 'PATCH',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json',
-            },
-            body,
-        });
-        if (!res.ok) throw new Error(`Drive write error ${res.status}`);
+        let res: Response;
+        try {
+            res = await fetch(`${UPLOAD_API}/files/${existing.id}?uploadType=media`, {
+                method: 'PATCH',
+                signal: driveSignal(),
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body,
+            });
+        } catch (err) {
+            throw new Error(timeoutMessage(err));
+        }
+        await assertOk(res);
     } else {
         const metadata = JSON.stringify({ name, parents: [parentId] });
         const blob = new Blob([
@@ -111,15 +156,21 @@ export async function upsertJsonFile(
             `--boundary\r\nContent-Type: application/json\r\n\r\n${body}\r\n`,
             '--boundary--',
         ]);
-        const res = await fetch(`${UPLOAD_API}/files?uploadType=multipart`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'multipart/related; boundary=boundary',
-            },
-            body: blob,
-        });
-        if (!res.ok) throw new Error(`Drive create error ${res.status}`);
+        let res: Response;
+        try {
+            res = await fetch(`${UPLOAD_API}/files?uploadType=multipart`, {
+                method: 'POST',
+                signal: driveSignal(),
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'multipart/related; boundary=boundary',
+                },
+                body: blob,
+            });
+        } catch (err) {
+            throw new Error(timeoutMessage(err));
+        }
+        await assertOk(res);
     }
 }
 
