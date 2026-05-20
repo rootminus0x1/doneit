@@ -37,12 +37,12 @@ function timeoutMessage(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
 }
 
-async function request<T>(url: string, token: string | null, options?: RequestInit): Promise<T> {
+async function requestRaw(url: string, token: string | null, options?: RequestInit): Promise<Response> {
     let res: Response;
     try {
         res = await fetch(url, {
             ...options,
-            signal: driveSignal(),
+            signal: options?.signal ?? driveSignal(),
             headers: {
                 Authorization: `Bearer ${token}`,
                 ...(options?.headers ?? {}),
@@ -52,6 +52,11 @@ async function request<T>(url: string, token: string | null, options?: RequestIn
         throw new Error(timeoutMessage(err));
     }
     await assertOk(res);
+    return res;
+}
+
+async function request<T>(url: string, token: string | null, options?: RequestInit): Promise<T> {
+    const res = await requestRaw(url, token, options);
     return res.json() as Promise<T>;
 }
 
@@ -80,16 +85,7 @@ export async function listFolders(token: string | null, parentId: string): Promi
 }
 
 export async function readFileText(token: string | null, fileId: string): Promise<string> {
-    let res: Response;
-    try {
-        res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
-            signal: driveSignal(),
-            headers: { Authorization: `Bearer ${token}` },
-        });
-    } catch (err) {
-        throw new Error(timeoutMessage(err));
-    }
-    await assertOk(res);
+    const res = await requestRaw(`${DRIVE_API}/files/${fileId}?alt=media`, token);
     return res.text();
 }
 
@@ -135,43 +131,26 @@ export async function upsertJsonFile(
     const body = JSON.stringify(content, null, 2);
 
     if (existing) {
-        let res: Response;
-        try {
-            res = await fetch(`${UPLOAD_API}/files/${existing.id}?uploadType=media`, {
-                method: 'PATCH',
-                signal: driveSignal(),
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-                body,
-            });
-        } catch (err) {
-            throw new Error(timeoutMessage(err));
-        }
-        await assertOk(res);
+        await requestRaw(`${UPLOAD_API}/files/${existing.id}?uploadType=media`, token, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
     } else {
+        const boundary = `doneit_boundary_${crypto.randomUUID()}`;
         const metadata = JSON.stringify({ name, parents: [parentId] });
         const blob = new Blob([
-            `--boundary\r\nContent-Type: application/json\r\n\r\n${metadata}\r\n`,
-            `--boundary\r\nContent-Type: application/json\r\n\r\n${body}\r\n`,
-            '--boundary--',
+            `--${boundary}\r\nContent-Type: application/json\r\n\r\n${metadata}\r\n`,
+            `--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n`,
+            `--${boundary}--`,
         ]);
-        let res: Response;
-        try {
-            res = await fetch(`${UPLOAD_API}/files?uploadType=multipart`, {
-                method: 'POST',
-                signal: driveSignal(),
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'multipart/related; boundary=boundary',
-                },
-                body: blob,
-            });
-        } catch (err) {
-            throw new Error(timeoutMessage(err));
-        }
-        await assertOk(res);
+        await requestRaw(`${UPLOAD_API}/files?uploadType=multipart`, token, {
+            method: 'POST',
+            headers: {
+                'Content-Type': `multipart/related; boundary=${boundary}`,
+            },
+            body: blob,
+        });
     }
 }
 
@@ -180,17 +159,7 @@ export async function downloadFileStream(
     fileId: string,
     signal?: AbortSignal,
 ): Promise<Response> {
-    let res: Response;
-    try {
-        res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
-            signal,
-            headers: { Authorization: `Bearer ${token}` },
-        });
-    } catch (err) {
-        throw new Error(timeoutMessage(err));
-    }
-    await assertOk(res);
-    return res;
+    return requestRaw(`${DRIVE_API}/files/${fileId}?alt=media`, token, { signal });
 }
 
 export async function getRootFolderId(token: string | null): Promise<string> {

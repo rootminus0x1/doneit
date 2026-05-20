@@ -1,19 +1,23 @@
 const DB_NAME = 'doneit-cache';
 const DB_VERSION = 1;
 
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDb(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = () => {
             const db = req.result;
-            if (!db.objectStoreNames.contains('json-cache'))
-                db.createObjectStore('json-cache', { keyPath: 'fileId' });
+            if (!db.objectStoreNames.contains('json-cache')) db.createObjectStore('json-cache', { keyPath: 'fileId' });
             if (!db.objectStoreNames.contains('pmtiles-meta'))
                 db.createObjectStore('pmtiles-meta', { keyPath: 'fileId' });
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
+        req.onblocked = () => console.warn('IndexedDB open blocked');
     });
+    return dbPromise;
 }
 
 export interface CachedJson {

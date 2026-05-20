@@ -9,6 +9,7 @@ export default defineConfig({
             reporter: ['text', ['text', { file: 'coverage-app.txt' }], 'lcov'],
             reportsDirectory: 'coverage',
             include: ['src/lib/**/*.ts'],
+            // Exclude external API integration and local caching utilities from coverage.
             exclude: ['src/lib/driveApi.ts', 'src/lib/localCache.ts'],
         },
     },
