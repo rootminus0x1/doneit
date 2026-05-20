@@ -55,17 +55,28 @@ function styleFor(source: TileSource): string | StyleSpecification {
 interface TrackPopupData {
     displayName: string;
     trackType: string | null;
+    category: string;
     filename: string;
     datetime: string | null;
     linkText: string | null;
     fileId: string | null;
+    lengthKm: number | null;
+    ascentM: number | null;
+}
+
+interface OverlayPopupData {
+    overlayId: string;
+    overlayLabel: string;
+    name: string | null;
+    rowType: string | null;
+    authorityName: string | null;
     lengthKm: number | null;
 }
 
 export type PopupData =
     | ({ kind: 'track' } & TrackPopupData)
     | { kind: 'peak'; name: string; elevation: number; category: string; lat: number; lng: number }
-    | { kind: 'overlay'; overlayId: string; overlayLabel: string; properties: Record<string, unknown> };
+    | ({ kind: 'overlay' } & OverlayPopupData);
 
 export interface LoadedPeaks {
     category: string;
@@ -125,16 +136,33 @@ const overlaySourceId = (id: string) => `overlay-${id}`;
 const overlayLayerId = (id: string) => `overlay-${id}`; // single-color (no lineStyle)
 const overlayOuterLayerId = (id: string) => `overlay-${id}-outer`;
 const overlayInnerLayerId = (id: string) => `overlay-${id}-inner`;
+const HIGHLIGHT_SOURCE = 'highlight-line';
+const HIGHLIGHT_GLOW_LAYER = 'highlight-line-glow';
+const HIGHLIGHT_LAYER = 'highlight-line';
 
 // True on touch-only devices (phones/tablets with no mouse hover support).
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
 const IS_TOUCH = window.matchMedia('(hover: none)').matches;
+
+function setHighlightGeom(map: maplibregl.Map, geom: ReturnType<typeof maplibregl.Map.prototype.queryRenderedFeatures>[number]['geometry'] | null): void {
+    const src = map.getSource(HIGHLIGHT_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    if (geom && (geom.type === 'LineString' || geom.type === 'MultiLineString')) {
+        src.setData({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: geom, properties: {} }] });
+        if (map.getLayer(HIGHLIGHT_GLOW_LAYER)) map.moveLayer(HIGHLIGHT_GLOW_LAYER);
+        if (map.getLayer(HIGHLIGHT_LAYER)) map.moveLayer(HIGHLIGHT_LAYER);
+    } else if (!geom) {
+        src.setData({ type: 'FeatureCollection', features: [] });
+    }
+}
 
 // Single point where MapLibre layer events are bound. All layer types use this so the
 // click/hover pattern can't diverge between tracks, peaks, and overlays.
 //
 // clickOnAll=true  (tracks, overlays): click fires on all devices; hover fires on non-touch.
 // clickOnAll=false (peaks):            click fires on touch only; hover fires on non-touch.
+// isLine=true      (tracks, overlays): hover shows/clears highlight; mouseleave clears it.
+// isLine=false     (peaks):            no highlight — prevents peak mouseleave clearing a line highlight.
 function bindInteraction(
     map: maplibregl.Map,
     layerId: string,
@@ -142,20 +170,26 @@ function bindInteraction(
     clickRef: { current: (d: PopupData) => void },
     hoverRef: { current: (d: PopupData | null) => void },
     clickOnAll = true,
+    isLine = true,
 ): void {
     if (clickOnAll || IS_TOUCH) {
         map.on('click', layerId, e => {
             const data = getData(e);
-            if (data) clickRef.current(data);
+            if (data) {
+                if (isLine) setHighlightGeom(map, e.features?.[0]?.geometry ?? null);
+                clickRef.current(data);
+            }
         });
     }
     if (!IS_TOUCH) {
         map.on('mouseenter', layerId, e => {
             map.getCanvas().style.cursor = 'pointer';
+            if (isLine) setHighlightGeom(map, e.features?.[0]?.geometry ?? null);
             hoverRef.current(getData(e));
         });
         map.on('mouseleave', layerId, () => {
             map.getCanvas().style.cursor = '';
+            if (isLine) setHighlightGeom(map, null);
             hoverRef.current(null);
         });
     }
@@ -198,22 +232,29 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             id.startsWith('peaks-') ||
             id === PMTILES_SOURCE ||
             id === PEAKS_PMTILES_SOURCE ||
-            id.startsWith('overlay-')
+            id.startsWith('overlay-') ||
+            id === HIGHLIGHT_SOURCE
         ) {
             customSources[id] = src as SourceSpecification;
         }
     }
-    const customLayers = (prev.layers ?? []).filter(
+    const allCustom = (prev.layers ?? []).filter(
         l =>
             l.id.startsWith('track-line-') ||
             l.id.startsWith('peaks-') ||
             l.id.startsWith('tracks-pmtiles-') ||
-            l.id.startsWith('overlay-'),
+            l.id.startsWith('overlay-') ||
+            l.id === HIGHLIGHT_GLOW_LAYER ||
+            l.id === HIGHLIGHT_LAYER,
     );
+    const customLayers = allCustom.filter(l => l.id !== HIGHLIGHT_GLOW_LAYER && l.id !== HIGHLIGHT_LAYER);
+    const highlightLayers = [HIGHLIGHT_GLOW_LAYER, HIGHLIGHT_LAYER]
+        .map(id => allCustom.find(l => l.id === id))
+        .filter((l): l is (typeof allCustom)[number] => l !== undefined);
     return {
         ...next,
         sources: { ...next.sources, ...customSources },
-        layers: [...next.layers, ...customLayers],
+        layers: [...next.layers, ...customLayers, ...highlightLayers],
     };
 }
 
@@ -221,10 +262,23 @@ function buildTrackPopup(props: Record<string, unknown>): TrackPopupData {
     return {
         displayName: String(props.display_name ?? ''),
         trackType: props.track_type ? String(props.track_type) : null,
+        category: String(props.category ?? ''),
         filename: String(props.filename ?? ''),
         datetime: props.datetime ? String(props.datetime) : null,
         linkText: props.link_text ? String(props.link_text) : null,
         fileId: props.file_id ? String(props.file_id) : null,
+        lengthKm: typeof props.length_km === 'number' ? props.length_km : null,
+        ascentM: typeof props.ascent_m === 'number' ? props.ascent_m : null,
+    };
+}
+
+function buildOverlayPopup(overlayId: string, overlayLabel: string, props: Record<string, unknown>): OverlayPopupData {
+    return {
+        overlayId,
+        overlayLabel,
+        name: props.Name ? String(props.Name) : null,
+        rowType: props.row_type ? String(props.row_type) : null,
+        authorityName: props.authority_name ? String(props.authority_name) : null,
         lengthKm: typeof props.length_km === 'number' ? props.length_km : null,
     };
 }
@@ -361,6 +415,13 @@ export function MapView({
         map.on('style.load', () => {
             styleLoadedRef.current = true;
             onStyleLoadRef.current?.(loadedSourceIdRef.current!);
+            // preserveCustomLayers copies the highlight source on style switches; add it on first load
+            if (!map.getSource(HIGHLIGHT_SOURCE)) {
+                map.addSource(HIGHLIGHT_SOURCE, {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+            }
             const b = map.getBounds();
             onBoundsChangeRef.current({
                 west: b.getWest(),
@@ -369,6 +430,18 @@ export function MapView({
                 north: b.getNorth(),
             });
             setMapVersion(v => v + 1);
+        });
+
+        // Clear highlight when the user clicks on background (no line feature at point)
+        map.on('click', e => {
+            const lineLayers = (map.getStyle()?.layers ?? [])
+                .filter(l =>
+                    (l.id.startsWith('track-line-') || l.id.startsWith('tracks-pmtiles-') || l.id.startsWith('overlay-'))
+                    && l.id !== HIGHLIGHT_LAYER,
+                )
+                .map(l => l.id);
+            if (lineLayers.length > 0 && map.queryRenderedFeatures(e.point, { layers: lineLayers }).length > 0) return;
+            setHighlightGeom(map, null);
         });
 
         return () => {
@@ -442,7 +515,7 @@ export function MapView({
 
             const getOverlayData = (e: { features?: maplibregl.MapGeoJSONFeature[] }): PopupData | null => {
                 const props = e.features?.[0]?.properties;
-                return props ? { kind: 'overlay', overlayId: ov.id, overlayLabel: ov.label, properties: props } : null;
+                return props ? { kind: 'overlay', ...buildOverlayPopup(ov.id, ov.label, props) } : null;
             };
 
             if (ov.lineStyle) {
@@ -525,11 +598,13 @@ export function MapView({
                     kind: 'track',
                     displayName: track.displayName,
                     trackType: track.trackType,
+                    category: track.category,
                     filename: track.filename,
                     datetime: track.datetime,
                     linkText: track.linkText,
                     fileId: track.fileId,
                     lengthKm: null,
+                    ascentM: null,
                 }), onFeatureClickRef, onFeatureHoverRef);
             }
         }
@@ -619,7 +694,7 @@ export function MapView({
                     if (!f) return null;
                     const [lng, lat] = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
                     return { kind: 'peak', name: String(f.properties?.name ?? ''), elevation: Number(f.properties?.ele ?? 0), category: ps.category, lat, lng };
-                }, onFeatureClickRef, onFeatureHoverRef, false);
+                }, onFeatureClickRef, onFeatureHoverRef, false, false);
             }
         }
     }, [loadedPeaks, mapVersion]);
@@ -659,7 +734,7 @@ export function MapView({
                 if (!f) return null;
                 const [lng, lat] = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
                 return { kind: 'peak', name: String(f.properties?.name ?? ''), elevation: Number(f.properties?.ele ?? 0), category: pc.name, lat, lng };
-            }, onFeatureClickRef, onFeatureHoverRef, false);
+            }, onFeatureClickRef, onFeatureHoverRef, false, false);
 
             const doneLid = `${lid}-done-tick`;
             if (!map.getLayer(doneLid)) {
@@ -757,6 +832,38 @@ export function MapView({
             padding: 40,
         });
     }, [flyToBbox]);
+
+    // Two-layer highlight: soft white glow (outer) + crisp cyan line (inner), both topmost.
+    // Shown on hover and click for line features. preserveCustomLayers keeps them across style switches.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0 || !map.getSource(HIGHLIGHT_SOURCE)) return;
+        if (!map.getLayer(HIGHLIGHT_GLOW_LAYER)) {
+            map.addLayer({
+                id: HIGHLIGHT_GLOW_LAYER,
+                type: 'line',
+                source: HIGHLIGHT_SOURCE,
+                paint: {
+                    'line-color': '#ffffff',
+                    'line-width': 12,
+                    'line-opacity': 0.35,
+                    'line-blur': 8,
+                },
+            });
+        }
+        if (!map.getLayer(HIGHLIGHT_LAYER)) {
+            map.addLayer({
+                id: HIGHLIGHT_LAYER,
+                type: 'line',
+                source: HIGHLIGHT_SOURCE,
+                paint: {
+                    'line-color': '#06b6d4',
+                    'line-width': 4,
+                    'line-opacity': 0.95,
+                },
+            });
+        }
+    }, [mapVersion]);
 
     return <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />;
 }

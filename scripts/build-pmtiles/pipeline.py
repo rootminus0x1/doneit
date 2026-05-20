@@ -4,6 +4,7 @@ All Drive interaction goes through GVFS (google-drive: FUSE mount).
 No doit-specific code here — pure functions called by dodo.py task actions.
 """
 
+import asyncio
 import hashlib
 import json
 import math
@@ -714,6 +715,107 @@ def run_build_tracks(
 # at runtime from peaks-index.json loaded by the app.
 # ---------------------------------------------------------------------------
 
+async def _fetch_row_async(
+    tasks: list[tuple[str, str, int]],
+    etags: dict[str, Any],
+    keep_props: frozenset[str],
+    compute_length: bool,
+    length_precision: int,
+) -> tuple[dict[str, list[dict[str, Any]]], set[str], dict[str, Any], int, int]:
+    """Fetch all ROW data concurrently over HTTP/2.
+
+    Returns (new_features_by_code, changed_codes, etag_updates, unchanged_count, error_count).
+    """
+    try:
+        import httpx  # type: ignore[import]
+    except ImportError:
+        sys.exit("httpx missing — install with: uv add 'httpx[http2]'")
+
+    total = len(tasks)
+    new_features: dict[str, list[dict[str, Any]]] = {}
+    changed: set[str] = set()
+    etag_updates: dict[str, Any] = {}
+    unchanged = errors = completed = 0
+
+    async with httpx.AsyncClient(http2=True, timeout=30.0) as client:
+
+        async def _one(code: str, name: str, type_num: int) -> tuple[str, int, str, list[dict[str, Any]], dict[str, str] | None]:
+            url = f"{_ROW_BASE_URL}/{code}/mutated{type_num}.json"
+            cached = etags.get(f"{code}/{type_num}", {})
+            row_type = _ROW_TYPES[type_num]
+            headers: dict[str, str] = {"User-Agent": "doneit-build/1.0"}
+            if cached.get("etag"):
+                headers["If-None-Match"] = cached["etag"]
+            if cached.get("last_modified"):
+                headers["If-Modified-Since"] = cached["last_modified"]
+
+            for attempt in range(3):
+                try:
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code == 304:
+                        return code, type_num, "unchanged", [], None
+                    if resp.status_code == 404:
+                        return code, type_num, "notfound", [], None
+                    resp.raise_for_status()
+                    new_etag: dict[str, str] = {}
+                    if resp.headers.get("etag"):
+                        new_etag["etag"] = resp.headers["etag"]
+                    if resp.headers.get("last-modified"):
+                        new_etag["last_modified"] = resp.headers["last-modified"]
+                    data = resp.json()
+                    features = data.get("features", [])
+                    for f in features:
+                        p = f.get("properties") or {}
+                        keep: dict[str, object] = {"row_type": row_type, "authority_name": name}
+                        if "Name" in p:
+                            keep["Name"] = p["Name"]
+                        if compute_length:
+                            coords = (f.get("geometry") or {}).get("coordinates") or []
+                            length_m = sum(
+                                haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
+                                for i in range(1, len(coords))
+                            ) if len(coords) > 1 else 0.0
+                            keep["length_km"] = round(length_m / 1000, length_precision)
+                        f["properties"] = keep
+                    return code, type_num, "changed", features, new_etag or None
+                except httpx.HTTPStatusError as e:
+                    sc = e.response.status_code
+                    if sc == 304:
+                        return code, type_num, "unchanged", [], None
+                    if sc == 404:
+                        return code, type_num, "notfound", [], None
+                    if attempt < 2:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    print(f"  warning: {code} {row_type}: HTTP {sc}", file=sys.stderr)
+                    return code, type_num, "error", [], None
+                except Exception as exc:
+                    if attempt < 2:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    print(f"  warning: {code} {row_type}: {exc}", file=sys.stderr)
+                    return code, type_num, "error", [], None
+            return code, type_num, "error", [], None
+
+        # asyncio is single-threaded so counter updates between awaits are safe without a lock
+        for fut in asyncio.as_completed([_one(c, n, t) for c, n, t in tasks]):
+            code, type_num, status, features, etag_entry = await fut
+            completed += 1
+            if status == "changed":
+                new_features.setdefault(code, []).extend(features)
+                changed.add(code)
+                if etag_entry:
+                    etag_updates[f"{code}/{type_num}"] = etag_entry
+            elif status == "unchanged":
+                unchanged += 1
+            elif status == "error":
+                errors += 1
+            if completed % 100 == 0 or completed == total:
+                log(f"{completed}/{total}: {len(changed)} changed, {unchanged} unchanged, {errors} errors")
+
+    return new_features, changed, etag_updates, unchanged, errors
+
+
 def _scrape_row_authorities() -> dict[str, str]:
     """Fetch the authority code→name mapping from the rowmaps.com datasets page."""
     import re
@@ -737,9 +839,6 @@ def fetch_row_geojson(output_path: Path) -> None:
     Skips downloading (uses existing file) when DONEIT_OFFLINE=1 or no internet is detected.
     Exits with an error if the output file does not exist and downloading is not possible.
     """
-    import urllib.error
-    import urllib.request
-    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     offline = os.environ.get("DONEIT_OFFLINE") == "1"
     if offline:
@@ -775,7 +874,7 @@ def fetch_row_geojson(output_path: Path) -> None:
 
     # Detect authority-set changes (additions or deletions) by comparing the
     # current scraped codes against what the ETag cache was built from.
-    cached_codes = {key.split("/")[0] for key in etags}
+    cached_codes = {key.split("/")[0] for key in etags if "/" in key}
     added_codes = set(authorities) - cached_codes
     removed_codes = cached_codes - set(authorities)
     if added_codes:
@@ -787,96 +886,19 @@ def fetch_row_geojson(output_path: Path) -> None:
             if key.split("/")[0] in removed_codes:
                 del etags[key]
 
-    def _fetch_one(code: str, name: str, type_num: int) -> tuple[str, int, str, list[dict[str, Any]], dict[str, str] | None]:
-        """Returns (code, type_num, status, features, new_etag_entry).
-        status is 'changed', 'unchanged', 'notfound', or 'error'.
-        """
-        url = f"{_ROW_BASE_URL}/{code}/mutated{type_num}.json"
-        key = f"{code}/{type_num}"
-        cached = etags.get(key, {})
-        row_type = _ROW_TYPES[type_num]
-
-        headers: dict[str, str] = {"User-Agent": "doneit-build/1.0"}
-        if cached.get("etag"):
-            headers["If-None-Match"] = cached["etag"]
-        if cached.get("last_modified"):
-            headers["If-Modified-Since"] = cached["last_modified"]
-
-        for attempt in range(3):
-            try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    new_etag: dict[str, str] = {}
-                    if resp.headers.get("ETag"):
-                        new_etag["etag"] = resp.headers["ETag"]
-                    if resp.headers.get("Last-Modified"):
-                        new_etag["last_modified"] = resp.headers["Last-Modified"]
-                    data = json.loads(resp.read())
-                features = data.get("features", [])
-                for f in features:
-                    p = f.get("properties") or {}
-                    keep: dict[str, object] = {"row_type": row_type, "authority_name": name}
-                    if "Name" in p:
-                        keep["Name"] = p["Name"]
-                    if _compute_length:
-                        coords = (f.get("geometry") or {}).get("coordinates") or []
-                        length_m = sum(
-                            haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
-                            for i in range(1, len(coords))
-                        ) if len(coords) > 1 else 0.0
-                        keep["length_km"] = round(length_m / 1000, _length_precision)
-                    f["properties"] = keep
-                return code, type_num, "changed", features, new_etag or None
-            except urllib.error.HTTPError as e:
-                if e.code == 304:
-                    return code, type_num, "unchanged", [], None
-                if e.code == 404:
-                    return code, type_num, "notfound", [], None
-                if attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                print(f"  warning: {code} {row_type}: HTTP {e.code}", file=sys.stderr)
-                return code, type_num, "error", [], None
-            except Exception as exc:
-                if attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                print(f"  warning: {code} {row_type}: {exc}", file=sys.stderr)
-                return code, type_num, "error", [], None
-        return code, type_num, "error", [], None
-
     tasks = [
         (code, name, t)
         for code, name in sorted(authorities.items())
         for t in _ROW_TYPES
     ]
-    total = len(tasks)
-
-    # Accumulate new features per authority; track which ones changed
-    new_features: dict[str, list[dict[str, Any]]] = {}   # code -> features from this run
-    changed_authorities: set[str] = set()
-    new_etags: dict[str, Any] = dict(etags)  # start from existing, update in place
+    new_etags: dict[str, Any] = dict(etags)
     new_etags["config_hash"] = _row_config_hash
-    completed = 0
-    unchanged = errors = 0
 
     with phase(f"Fetching ROW data ({len(authorities)} authorities × {len(_ROW_TYPES)} types)"):
-        with ThreadPoolExecutor(max_workers=16) as pool:
-            futures = {pool.submit(_fetch_one, code, name, t): None for code, name, t in tasks}
-            for future in as_completed(futures):
-                code, type_num, status, features, etag_entry = future.result()
-                completed += 1
-                if status == "changed":
-                    new_features.setdefault(code, []).extend(features)
-                    changed_authorities.add(code)
-                    if etag_entry:
-                        new_etags[f"{code}/{type_num}"] = etag_entry
-                elif status == "unchanged":
-                    unchanged += 1
-                elif status == "error":
-                    errors += 1
-                if completed % 100 == 0 or completed == total:
-                    log(f"{completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
+        new_features, changed_authorities, etag_updates, _unchanged, _errors = asyncio.run(
+            _fetch_row_async(tasks, etags, _keep_props, _compute_length, _length_precision)
+        )
+    new_etags.update(etag_updates)
 
     # When row-config.json changes, reprocess all cached authority files with the new config.
     # This updates property filtering and recomputes derived fields (e.g. length_km from geometry)
@@ -911,7 +933,7 @@ def fetch_row_geojson(output_path: Path) -> None:
             changed_authorities.update(config_reprocessed)
 
     if not changed_authorities and not added_codes and not removed_codes:
-        log(f"All {total} files unchanged — skipping output write")
+        log(f"All {len(tasks)} files unchanged — skipping output write")
         _ROW_ETAG_PATH.write_text(json.dumps(new_etags))
         return
 

@@ -13,16 +13,41 @@ import { registerDrivePMTiles, upgradeToLocalPMTiles } from './lib/drivepmtiles'
 import { useSync } from './hooks/useSync';
 import { filenameToCategoryLabel } from './lib/gpxParser';
 
+// Shared across all useErrorToast instances so duplicates from different error sources merge.
+const _activeToasts = new Map<string, { id: string | number; count: number }>();
+
+function ClipboardIcon() {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" width={14} height={14}>
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+    );
+}
+
 function useErrorToast(error: string | null) {
     const prev = useRef<string | null>(null);
     useEffect(() => {
-        if (error && error !== prev.current) {
-            toast.error(error, {
-                duration: Infinity,
-                action: { label: 'Copy', onClick: () => navigator.clipboard.writeText(error) },
-            });
+        if (!error || error === prev.current) {
+            prev.current = error;
+            return;
         }
         prev.current = error;
+
+        const entry = _activeToasts.get(error);
+        const count = (entry?.count ?? 0) + 1;
+        const msg = count > 1 ? `${error} (×${count})` : error;
+        const onDismiss = () => _activeToasts.delete(error);
+        const newId = toast.error(msg, {
+            ...(entry ? { id: entry.id } : {}),
+            duration: Infinity,
+            closeButton: true,
+            action: { label: <ClipboardIcon />, onClick: () => navigator.clipboard.writeText(error) },
+            actionButtonStyle: { padding: '4px 6px', minWidth: 0, lineHeight: 1 },
+            onDismiss,
+            onAutoClose: onDismiss,
+        });
+        _activeToasts.set(error, { id: entry?.id ?? newId, count });
     }, [error]);
 }
 
@@ -48,6 +73,15 @@ function formatDate(date: string): string {
     const d = new Date(date + 'T12:00:00');
     if (isNaN(d.getTime())) return date;
     return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+function formatKm(km: number, decimals: number, nautical = false): string {
+    if (nautical) {
+        const nmi = km / 1.852;
+        return `${km.toFixed(decimals)} km (${nmi.toFixed(decimals)} nmi)`;
+    }
+    const miles = km * 0.621371;
+    return `${km.toFixed(decimals)} km (${miles.toFixed(decimals)} mi)`;
 }
 
 export default function App() {
@@ -362,12 +396,16 @@ export default function App() {
                     const bagged = baggedTracks.find(bt => bt.track === feature.filename);
                     const baggedNames = bagged ? bagged.peaks.flatMap(bp => bp.names) : [];
                     title = feature.displayName;
+                    const distLine = [
+                        feature.lengthKm !== null ? formatKm(feature.lengthKm, 1, feature.category === 'sailing') : null,
+                        feature.ascentM !== null ? `↑${feature.ascentM.toLocaleString()} m` : null,
+                    ].filter(Boolean).join(' · ');
                     body = (
                         <>
                             {feature.trackType && <div>{feature.trackType}</div>}
                             <div>{feature.filename}</div>
                             {feature.datetime && <div>{formatDatetime(feature.datetime)}</div>}
-                            {feature.lengthKm !== null && <div>{feature.lengthKm.toFixed(1)} km</div>}
+                            {distLine && <div>{distLine}</div>}
                             {feature.linkText && <div>{feature.linkText}</div>}
                             {baggedNames.length > 0 && (
                                 <div style={{ marginTop: 4 }}>✔ {baggedNames.join(', ')}</div>
@@ -403,17 +441,15 @@ export default function App() {
                         </>
                     );
                 } else {
-                    const p = feature.properties;
-                    title = p.Name ? String(p.Name) : feature.overlayLabel;
-                    const rowType = p.row_type ? String(p.row_type).replace(/_/g, ' ') : null;
-                    const authorityName = p.authority_name ? String(p.authority_name) : null;
-                    const lengthKm = p.length_km != null ? Number(p.length_km) : null;
-                    const typeLine = [rowType, lengthKm != null ? `${lengthKm.toFixed(2)} km` : null]
-                        .filter(Boolean).join(' · ');
+                    title = feature.name ?? feature.overlayLabel;
+                    const typeLine = [
+                        feature.rowType ? feature.rowType.replace(/_/g, ' ') : null,
+                        feature.lengthKm != null ? formatKm(feature.lengthKm, 2) : null,
+                    ].filter(Boolean).join(' · ');
                     body = (
                         <>
                             {typeLine && <div>{typeLine}</div>}
-                            {authorityName && <div>{authorityName}</div>}
+                            {feature.authorityName && <div>{feature.authorityName}</div>}
                         </>
                     );
                 }

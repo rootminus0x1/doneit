@@ -2406,6 +2406,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/mime-types@npm:^3.0.1":
+  version: 3.0.1
+  resolution: "@types/mime-types@npm:3.0.1"
+  checksum: 10/96534e23b2180e5396a1e6a44f51ec59e349bd43daed4b5cb4548493126e9641cdc65f8292477e80c5e6063cf625330dae8edaf31357553b60baa23c32a8bafd
+  languageName: node
+  linkType: hard
+
 "@types/node@npm:^24.12.2":
   version: 24.12.3
   resolution: "@types/node@npm:24.12.3"
@@ -3257,6 +3264,7 @@ __metadata:
     "@eslint/js": "npm:^10.0.1"
     "@react-oauth/google": "npm:^0.13.5"
     "@tmcw/togeojson": "npm:^7.1.2"
+    "@types/mime-types": "npm:^3.0.1"
     "@types/node": "npm:^24.12.2"
     "@types/react": "npm:^19.2.14"
     "@types/react-dom": "npm:^19.2.3"
@@ -3268,6 +3276,7 @@ __metadata:
     globals: "npm:^17.5.0"
     jsdom: "npm:^26.0.0"
     maplibre-gl: "npm:^5.24.0"
+    mime-types: "npm:^3.0.2"
     pmtiles: "npm:^4.4.1"
     prettier: "npm:^3.8.3"
     react: "npm:^19.2.5"
@@ -4980,6 +4989,22 @@ __metadata:
   version: 1.1.0
   resolution: "math-intrinsics@npm:1.1.0"
   checksum: 10/11df2eda46d092a6035479632e1ec865b8134bdfc4bd9e571a656f4191525404f13a283a515938c3a8de934dbfd9c09674d9da9fa831e6eb7e22b50b197d2edd
+  languageName: node
+  linkType: hard
+
+"mime-db@npm:^1.54.0":
+  version: 1.54.0
+  resolution: "mime-db@npm:1.54.0"
+  checksum: 10/9e7834be3d66ae7f10eaa69215732c6d389692b194f876198dca79b2b90cbf96688d9d5d05ef7987b20f749b769b11c01766564264ea5f919c88b32a29011311
+  languageName: node
+  linkType: hard
+
+"mime-types@npm:^3.0.2":
+  version: 3.0.2
+  resolution: "mime-types@npm:3.0.2"
+  dependencies:
+    mime-db: "npm:^1.54.0"
+  checksum: 10/9db0ad31f5eff10ee8f848130779b7f2d056ddfdb6bda696cb69be68d486d33a3457b4f3f9bdeb60d0736edb471bd5a7c0a384375c011c51c889fd0d5c3b893e
   languageName: node
   linkType: hard
 

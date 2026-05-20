@@ -9,7 +9,9 @@
       "Bash(yarn test:py)",
       "Bash(yarn test *)",
       "Bash(yarn vitest *)",
-      "Bash(python3 -c \"import pipeline; print\\('OK'\\)\")"
+      "Bash(python3 -c \"import pipeline; print\\('OK'\\)\")",
+      "Bash(curl -sI \"https://www.rowmaps.com/jsons/EX/mutated1.json\")",
+      "Bash(curl -s \"https://www.rowmaps.com/datasets/\")"
     ]
   }
 }

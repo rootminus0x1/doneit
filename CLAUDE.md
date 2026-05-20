@@ -22,6 +22,28 @@ Python modules in `scripts/build-pmtiles/` must not perform I/O (filesystem, net
 
 Reason: modules are imported in tests; side effects at import time contaminate the test environment, create spurious directories, and make tests order-dependent.
 
+### Console output in tests
+
+Tests must be silent during normal execution. If code under test emits `console.log` or `console.warn` as part of expected behaviour, suppress it in `beforeEach` using `vi.spyOn` — but capture the output and replay it only on failure using vitest's `onTestFailed` hook. This keeps the test run clean while preserving diagnostic information when something goes wrong.
+
+```typescript
+beforeEach(() => {
+    const logs: unknown[][] = [];
+    const warns: unknown[][] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args) => { logs.push(args); });
+    vi.spyOn(console, 'warn').mockImplementation((...args) => { warns.push(args); });
+    onTestFailed(() => {
+        for (const a of logs)  console.log(...a);
+        for (const a of warns) console.warn(...a);
+    });
+});
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+```
+
+Apply this pattern to any `describe` block whose code under test logs to the console during normal operation.
+
 ### Questions vs instructions
 When a message ends with "?", it is a question to be answered in the reply — not an instruction to act on. Answer it before doing anything else, and do not treat it as a directive to change code or behaviour.
 

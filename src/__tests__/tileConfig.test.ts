@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFailed } from 'vitest';
 import { buildRasterStyle, loadTileSources } from '../lib/tileConfig';
 import type { TileSource } from '../lib/tileConfig';
 
@@ -55,11 +55,23 @@ import { isReady, api } from '../lib/dataApi';
 
 describe('loadTileSources', () => {
     beforeEach(() => {
+        const logs: unknown[][] = [];
+        const warns: unknown[][] = [];
+        vi.spyOn(console, 'log').mockImplementation((...args) => { logs.push(args); });
+        vi.spyOn(console, 'warn').mockImplementation((...args) => { warns.push(args); });
+        onTestFailed(() => {
+            for (const a of logs)  console.log(...a);
+            for (const a of warns) console.warn(...a);
+        });
         vi.mocked(isReady).mockReset();
         vi.mocked(api.getRootFolderId).mockReset();
         vi.mocked(api.listFolders).mockReset();
         vi.mocked(api.findFileByName).mockReset();
         vi.mocked(api.readFileText).mockReset();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it('returns [] immediately when not ready', async () => {
