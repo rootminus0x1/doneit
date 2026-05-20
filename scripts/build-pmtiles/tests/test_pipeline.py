@@ -207,8 +207,8 @@ def test_load_gpx_cache_malformed_file(tmp_path):
 
 
 def test_load_gpx_cache_wrong_version(tmp_path):
-    path = tmp_path / "v2-cache.json"
-    path.write_text(json.dumps({"version": 2, "entries": {"key": "value"}}))
+    path = tmp_path / "old-cache.json"
+    path.write_text(json.dumps({"version": 1, "entries": {"key": "value"}}))
     assert pipeline.load_gpx_cache(path) == {}
 
 

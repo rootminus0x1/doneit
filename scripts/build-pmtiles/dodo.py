@@ -115,6 +115,7 @@ def task_fetch_row() -> dict[str, Any]:
 
     return {
         "actions": [action],
+        "file_dep": [str(pipeline.ROW_CONFIG)],
         "targets": [str(pipeline.ROW_GEOJSON_PATH)],
         "uptodate": [False],
     }
@@ -172,7 +173,7 @@ def task_build_tracks() -> dict[str, Any]:
             )
 
     return {
-        "file_dep": [str(_cache_path), str(pipeline.TRACKS_PMTILES_CONFIG)],
+        "file_dep": [str(_cache_path), str(pipeline.TRACKS_PMTILES_CONFIG), str(pipeline.TRACKS_CONFIG)],
         "targets": [str(_local_tracks_pmtiles), str(_local_tracks_index)],
         "actions": [action],
         "task_dep": ["parse_and_bag_tracks"],

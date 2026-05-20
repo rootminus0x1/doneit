@@ -26,6 +26,8 @@ ROW_PMTILES_CONFIG    = Path(__file__).parent / "row-pmtiles.json"
 TRACKS_PMTILES_CONFIG = Path(__file__).parent / "tracks-pmtiles.json"
 PEAKS_PMTILES_CONFIG  = Path(__file__).parent / "peaks-pmtiles.json"
 BAG_CONFIG            = Path(__file__).parent / "bag-config.json"
+ROW_CONFIG            = Path(__file__).parent / "row-config.json"
+TRACKS_CONFIG         = Path(__file__).parent / "tracks-config.json"
 
 
 def _load_pmtiles_config(path: Path) -> dict[str, Any]:
@@ -50,7 +52,6 @@ _ROW_DATASETS_URL = "https://www.rowmaps.com/datasets/"
 _ROW_ETAG_PATH = BUILD_DIR / "row-etags.json"
 _ROW_CACHE_DIR = BUILD_DIR / "row-cache"
 _ROW_TYPES = {1: "footpath", 2: "bridleway", 3: "restricted_byway", 4: "byway"}
-_ROW_KEEP = {"Name", "row_type", "authority_name", "length_km"}
 
 # ---------------------------------------------------------------------------
 # Timing helper
@@ -165,7 +166,7 @@ def load_gpx_cache(cache_path: Path) -> dict[str, Any]:
     try:
         with phase("Loading GPX cache"):
             data = json.loads(cache_path.read_text())
-            if data.get("version") == 1:
+            if data.get("version") == 2:
                 entries: dict[str, Any] = data.get("entries", {})
                 log(f"{len(entries)} entries")
                 return entries
@@ -176,7 +177,7 @@ def load_gpx_cache(cache_path: Path) -> dict[str, Any]:
 
 def save_gpx_cache(cache_path: Path, entries: dict[str, Any]) -> None:
     data = {
-        "version": 1,
+        "version": 2,
         "generated": datetime.now(timezone.utc).isoformat(),
         "entries": entries,
     }
@@ -198,7 +199,7 @@ def load_peaks_index(peaks_index_path: Path) -> dict[str, Any]:
         return {"version": 2, "generated": "", "categories": [], "bagged": []}
 
 
-_PEAKS_INDEX_KEYS = {"version", "generated", "categories", "bagged", "peak_hash", "bag_distance"}
+_PEAKS_INDEX_KEYS = {"version", "generated", "categories", "bagged", "peak_hash", "bag_distance", "bag_config_hash"}
 
 def save_peaks_index(peaks_index_path: Path, index: dict[str, Any]) -> None:
     out = {k: v for k, v in index.items() if k in _PEAKS_INDEX_KEYS}
@@ -250,7 +251,7 @@ def parse_gpx_coords(gpx_path: Path, filename: str) -> list[list[list[float]]]:
             print(f"  skip {filename}: {e}", file=sys.stderr)
             return []
     return [
-        [[p.longitude, p.latitude] for seg in track.segments for p in seg.points]
+        [[p.longitude, p.latitude, p.elevation or 0.0] for seg in track.segments for p in seg.points]
         for track in parsed.tracks
     ]
 
@@ -363,6 +364,7 @@ def build_track_features(
     file_id: str | None,
     filename: str,
     unnamed_out: list[str],
+    tracks_cfg: dict[str, Any],
 ) -> list[dict[str, Any]]:
     meta: dict[str, Any] = entry["meta"]
     dt = meta.get("datetime")
@@ -375,19 +377,28 @@ def build_track_features(
     for coords in entry["tracks"]:
         if not coords:
             continue
-        length_km = round(
-            sum(haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
-                for i in range(1, len(coords))) / 1000, 2
-        ) if len(coords) > 1 else 0.0
+        props: dict[str, Any] = {
+            "category": category, "filename": filename, "file_id": file_id,
+            "display_name": display_name, "date": date, "datetime": dt,
+            "track_type": meta.get("trackType"), "link_text": meta.get("linkText"),
+        }
+        if tracks_cfg.get("compute_length_km", True):
+            props["length_km"] = round(
+                sum(haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
+                    for i in range(1, len(coords))) / 1000, 2
+            ) if len(coords) > 1 else 0.0
+        if tracks_cfg.get("compute_ascent_m", False):
+            ascent = 0.0
+            for i in range(1, len(coords)):
+                if len(coords[i]) > 2 and len(coords[i - 1]) > 2:
+                    dz = coords[i][2] - coords[i - 1][2]
+                    if dz > 0:
+                        ascent += dz
+            props["ascent_m"] = round(ascent)
         features.append({
             "type": "Feature",
             "geometry": {"type": "LineString", "coordinates": coords},
-            "properties": {
-                "category": category, "filename": filename, "file_id": file_id,
-                "display_name": display_name, "date": date, "datetime": dt,
-                "track_type": meta.get("trackType"), "link_text": meta.get("linkText"),
-                "length_km": length_km,
-            },
+            "properties": props,
         })
     return features
 
@@ -531,14 +542,16 @@ def run_parse_and_bag_tracks(
         peaks_index["categories"] = [
             {"name": cat, "count": len(wpts)} for cat, wpts in sorted(all_peaks.items())
         ]
+        bag_config_hash = hashlib.md5(BAG_CONFIG.read_bytes()).hexdigest()
         full_rebag = False
         if peaks_index.get("peak_hash") != peak_hash:
             log("peaks content changed — triggering full re-bag")
             full_rebag = True
-        elif peaks_index.get("bag_distance") != bag_distance_m:
-            log(f"bag distance changed to {bag_distance_m} m — triggering full re-bag")
+        elif peaks_index.get("bag_config_hash") != bag_config_hash:
+            log("bag config changed — triggering full re-bag")
             full_rebag = True
         peaks_index["peak_hash"] = peak_hash
+        peaks_index["bag_config_hash"] = bag_config_hash
         peaks_index["bag_distance"] = bag_distance_m
 
     if not to_parse and not full_rebag:
@@ -621,6 +634,7 @@ def run_build_tracks(
     sindex: Any = None,
 ) -> None:
     """Build tracks.pmtiles and tracks-index.json from the GPX cache."""
+    tracks_cfg = json.loads(TRACKS_CONFIG.read_text())
     index_entries: list[dict[str, Any]] = []
     unnamed_tracks: list[str] = []
     unknown_country_tracks: list[str] = []
@@ -636,7 +650,7 @@ def run_build_tracks(
                 entry = cache.get(f"{category}/{filename}")
                 if not entry:
                     continue
-                features = build_track_features(entry, category, file_id, filename, unnamed_tracks)
+                features = build_track_features(entry, category, file_id, filename, unnamed_tracks, tracks_cfg)
                 for feature in features:
                     out.write(json.dumps(feature) + "\n")
                     total += 1
@@ -742,6 +756,13 @@ def fetch_row_geojson(output_path: Path) -> None:
 
     _ROW_CACHE_DIR.mkdir(exist_ok=True)
 
+    _row_cfg_bytes = ROW_CONFIG.read_bytes()
+    _row_cfg = json.loads(_row_cfg_bytes)
+    _row_config_hash = hashlib.md5(_row_cfg_bytes).hexdigest()
+    _keep_props: frozenset[str] = frozenset(_row_cfg.get("keep_properties", ["Name", "row_type", "authority_name"]))
+    _compute_length = bool(_row_cfg.get("compute_length_km", True))
+    _length_precision = int(_row_cfg.get("length_km_precision", 3))
+
     authorities = _scrape_row_authorities()
 
     # Load saved ETags: {"CODE/type_num": {"etag": "...", "last_modified": "..."}}
@@ -793,21 +814,17 @@ def fetch_row_geojson(output_path: Path) -> None:
                     data = json.loads(resp.read())
                 features = data.get("features", [])
                 for f in features:
-                    p = f.setdefault("properties", {})
-                    desc = p.get("Description", "")
-                    length_km: float | None = None
-                    if desc:
-                        parts = desc.split("|")
-                        if len(parts) >= 3:
-                            try:
-                                length_km = float(parts[2])
-                            except ValueError:
-                                pass
+                    p = f.get("properties") or {}
                     keep: dict[str, object] = {"row_type": row_type, "authority_name": name}
                     if "Name" in p:
                         keep["Name"] = p["Name"]
-                    if length_km is not None:
-                        keep["length_km"] = length_km
+                    if _compute_length:
+                        coords = (f.get("geometry") or {}).get("coordinates") or []
+                        length_m = sum(
+                            haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
+                            for i in range(1, len(coords))
+                        ) if len(coords) > 1 else 0.0
+                        keep["length_km"] = round(length_m / 1000, _length_precision)
                     f["properties"] = keep
                 return code, type_num, "changed", features, new_etag or None
             except urllib.error.HTTPError as e:
@@ -838,7 +855,8 @@ def fetch_row_geojson(output_path: Path) -> None:
     # Accumulate new features per authority; track which ones changed
     new_features: dict[str, list[dict[str, Any]]] = {}   # code -> features from this run
     changed_authorities: set[str] = set()
-    new_etags = dict(etags)  # start from existing, update in place
+    new_etags: dict[str, Any] = dict(etags)  # start from existing, update in place
+    new_etags["config_hash"] = _row_config_hash
     completed = 0
     unchanged = errors = 0
 
@@ -860,29 +878,37 @@ def fetch_row_geojson(output_path: Path) -> None:
                 if completed % 100 == 0 or completed == total:
                     log(f"{completed}/{total}: {len(changed_authorities)} changed, {unchanged} unchanged, {errors} errors")
 
-    # Strip KML artifacts from per-authority cache files written before _ROW_STRIP was applied.
-    # This makes the fix self-healing: the next run detects dirty caches, rewrites them, and
-    # updates row.geojson — so doit sees a changed target and rebuilds row.pmtiles.
-    stripped_from_cache: set[str] = set()
-    for code in sorted(authorities):
-        if code in changed_authorities:
-            continue  # already being rebuilt from fresh download
-        cache_file = _ROW_CACHE_DIR / f"{code}.json"
-        if not cache_file.exists():
-            continue
-        try:
-            cached = json.loads(cache_file.read_text())
-            if any(k not in _ROW_KEEP for f in cached for k in f.get("properties", {})):
+    # When row-config.json changes, reprocess all cached authority files with the new config.
+    # This updates property filtering and recomputes derived fields (e.g. length_km from geometry)
+    # without re-downloading anything.
+    config_reprocessed: set[str] = set()
+    if etags.get("config_hash") != _row_config_hash:
+        for code in sorted(authorities):
+            if code in changed_authorities:
+                continue  # fresh download already processed with current config
+            cache_file = _ROW_CACHE_DIR / f"{code}.json"
+            if not cache_file.exists():
+                continue
+            try:
+                cached = json.loads(cache_file.read_text())
                 for f in cached:
-                    p = f.get("properties", {})
-                    f["properties"] = {k: v for k, v in p.items() if k in _ROW_KEEP}
+                    p = f.get("properties") or {}
+                    new_p: dict[str, object] = {k: v for k, v in p.items() if k in _keep_props}
+                    if _compute_length:
+                        coords = (f.get("geometry") or {}).get("coordinates") or []
+                        length_m = sum(
+                            haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
+                            for i in range(1, len(coords))
+                        ) if len(coords) > 1 else 0.0
+                        new_p["length_km"] = round(length_m / 1000, _length_precision)
+                    f["properties"] = new_p
                 cache_file.write_text(json.dumps(cached, separators=(",", ":")))
-                stripped_from_cache.add(code)
-        except Exception:
-            pass
-    if stripped_from_cache:
-        log(f"Cleaned properties in {len(stripped_from_cache)} cached authority file(s)")
-        changed_authorities.update(stripped_from_cache)
+                config_reprocessed.add(code)
+            except Exception:
+                pass
+        if config_reprocessed:
+            log(f"Config changed — reprocessed {len(config_reprocessed)} cached authority file(s)")
+            changed_authorities.update(config_reprocessed)
 
     if not changed_authorities and not added_codes and not removed_codes:
         log(f"All {total} files unchanged — skipping output write")
@@ -891,11 +917,11 @@ def fetch_row_geojson(output_path: Path) -> None:
 
     # Merge newly downloaded and cached features into row.geojson
     reasons: list[str] = []
-    server_changed = changed_authorities - stripped_from_cache
+    server_changed = changed_authorities - config_reprocessed
     if server_changed:
         reasons.append(f"{len(server_changed)} changed")
-    if stripped_from_cache:
-        reasons.append(f"{len(stripped_from_cache)} cache-stripped")
+    if config_reprocessed:
+        reasons.append(f"{len(config_reprocessed)} config-reprocessed")
     if added_codes:
         reasons.append(f"{len(added_codes)} added")
     if removed_codes:
