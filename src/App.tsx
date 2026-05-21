@@ -137,7 +137,6 @@ export default function App() {
     }, []);
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [flyToBbox, setFlyToBbox] = useState(null as null | import('./lib/gpxParser').TrackBbox);
     const [mapError, setMapError] = useState<string | null>(null);
 
     const { syncState, startSync, cancelSync } = useSync(token);
@@ -326,7 +325,6 @@ export default function App() {
                     hiddenPeakCategories={hiddenPeakCategories}
                     hiddenOverlays={hiddenOverlays}
                     baggedSet={baggedSet}
-                    flyToBbox={flyToBbox}
                 />
             )}
 
@@ -372,7 +370,7 @@ export default function App() {
                 {formatCoord(mapCenter[1], mapCenter[0])}
             </div>
 
-            <MapControls onLocate={setFlyToBbox} bearing={bearing} onResetNorth={() => setNorthTrigger(n => n + 1)} />
+            <MapControls bearing={bearing} onResetNorth={() => setNorthTrigger(n => n + 1)} />
 
             <Sidebar
                 open={sidebarOpen}

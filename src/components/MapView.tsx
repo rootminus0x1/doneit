@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import maplibregl, { type LngLatBoundsLike, type StyleSpecification, type SourceSpecification } from 'maplibre-gl';
+import maplibregl, { type StyleSpecification, type SourceSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import '../lib/drivepmtiles'; // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig';
@@ -121,7 +121,6 @@ interface Props {
     onError: (message: string) => void;
     onStyleLoad?: (sourceId: string) => void;
     onStyleFail?: (message: string) => void;
-    flyToBbox?: TrackBbox | null;
     hiddenCategories: string[];
     hiddenTrackTypes: string[];
     hiddenPeakCategories: string[];
@@ -356,7 +355,6 @@ export function MapView({
     onError,
     onStyleLoad,
     onStyleFail,
-    flyToBbox,
     hiddenCategories,
     hiddenTrackTypes,
     hiddenPeakCategories,
@@ -421,6 +419,18 @@ export function MapView({
 
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
         map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right');
+
+        const geolocate = new maplibregl.GeolocateControl({
+            positionOptions: { enableHighAccuracy: true },
+            trackUserLocation: true,
+            showAccuracyCircle: true,
+            fitBoundsOptions: { maxZoom: 16, animate: true },
+        });
+        map.addControl(geolocate, 'bottom-right');
+        geolocate.on('error', e => {
+            onErrorRef.current((e as GeolocationPositionError).message ?? 'Geolocation error');
+        });
+
         mapRef.current = map;
         loadedSourceIdRef.current = source.id;
 
@@ -877,16 +887,6 @@ export function MapView({
             );
         }
     }, [hiddenCategories, hiddenTrackTypes, categories, mapVersion]);
-
-    // Fly to bbox
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !flyToBbox) return;
-        const { west, east, south, north } = flyToBbox;
-        map.fitBounds([west, south, east, north] as LngLatBoundsLike, {
-            padding: 40,
-        });
-    }, [flyToBbox]);
 
     // Two-layer highlight: soft white glow (outer) + crisp cyan line (inner), both topmost.
     // Shown on hover and click for line features. preserveCustomLayers keeps them across style switches.

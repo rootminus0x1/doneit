@@ -1,40 +1,9 @@
-import { useState, useCallback } from 'react';
-import type { TrackBbox } from '../lib/gpxParser';
-
 interface Props {
-    onLocate: (bbox: TrackBbox) => void;
     bearing?: number;
     onResetNorth?: () => void;
 }
 
-export function MapControls({ onLocate, bearing = 0, onResetNorth }: Props) {
-    const [locating, setLocating] = useState(false);
-    const [locateError, setLocateError] = useState(false);
-
-    const handleLocate = useCallback(() => {
-        if (!navigator.geolocation) return;
-        setLocating(true);
-        setLocateError(false);
-        navigator.geolocation.getCurrentPosition(
-            pos => {
-                setLocating(false);
-                const { latitude: lat, longitude: lon } = pos.coords;
-                const d = 0.01;
-                onLocate({
-                    west: lon - d,
-                    east: lon + d,
-                    south: lat - d,
-                    north: lat + d,
-                });
-            },
-            () => {
-                setLocating(false);
-                setLocateError(true);
-            },
-            { timeout: 10000 },
-        );
-    }, [onLocate]);
-
+export function MapControls({ bearing = 0, onResetNorth }: Props) {
     return (
         <div style={styles.container}>
             <button style={styles.btn} title="Reset north" onClick={onResetNorth}>
@@ -51,22 +20,6 @@ export function MapControls({ onLocate, bearing = 0, onResetNorth }: Props) {
                     <polygon points="12,3 15.5,13 12,11 8.5,13" fill="#d32f2f" />
                     <polygon points="12,21 8.5,11 12,13 15.5,11" fill="#bdbdbd" />
                 </svg>
-            </button>
-            <button style={styles.btn} title="Locate me" onClick={handleLocate}>
-                {locating ? (
-                    <span style={{ fontSize: 16, color: '#4285f4' }}>…</span>
-                ) : locateError ? (
-                    <span style={{ fontSize: 16, color: '#d32f2f' }}>✕</span>
-                ) : (
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" style={{ display: 'block' }}>
-                        <circle cx="12" cy="12" r="7" stroke="#4285f4" strokeWidth="2"/>
-                        <circle cx="12" cy="12" r="2.5" fill="#4285f4"/>
-                        <line x1="12" y1="2" x2="12" y2="5" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
-                        <line x1="12" y1="19" x2="12" y2="22" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
-                        <line x1="2" y1="12" x2="5" y2="12" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
-                        <line x1="19" y1="12" x2="22" y2="12" stroke="#4285f4" strokeWidth="2" strokeLinecap="round"/>
-                    </svg>
-                )}
             </button>
         </div>
     );
