@@ -4,6 +4,12 @@
   padding: 0;
 }
 
+/* compass is hard up against the edge of the map display */
+.maplibregl-ctrl-top-right {
+  top: 10px !important;
+  right: 10px !important;
+}
+
 html, body, #root {
   height: 100%;
   width: 100%;
