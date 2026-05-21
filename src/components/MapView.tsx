@@ -497,7 +497,7 @@ export function MapView({
             fitBoundsOptions: { maxZoom: 16, animate: true },
         });
         map.addControl(geolocate, 'bottom-right');
-        map.addControl(new Compass({ size: 'xs', visualizePitch: true, displayDirection: true }), 'top-right');
+        map.addControl(new Compass({ size: 'xs', visualizePitch: true }), 'top-right');
         geolocate.on('error', e => {
             onErrorRef.current((e as GeolocationPositionError).message ?? 'Geolocation error');
         });
