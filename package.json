@@ -9,12 +9,12 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "data:local": "uv run --directory scripts/build-pmtiles python build.py",
-    "data": "uv run --directory scripts/build-pmtiles python build.py deploy",
-    "fetch-row": "uv run --directory scripts/build-pmtiles python build.py fetch_row",
+    "data:local": "VIRTUAL_ENV= uv run --directory scripts/build-pmtiles python build.py",
+    "data": "VIRTUAL_ENV= uv run --directory scripts/build-pmtiles python build.py deploy",
+    "fetch-row": "VIRTUAL_ENV= uv run --directory scripts/build-pmtiles python build.py fetch_row",
     "fmt": "prettier --write \"src/**/*.{ts,tsx}\"",
     "test:app": "vitest run --coverage && cp coverage/lcov.info lcov.info && cp coverage/coverage-app.txt regression/coverage-app.txt",
-    "test:py": "uv run --directory scripts/build-pmtiles pytest --cov=pipeline --cov-report=html --cov-report=term-missing --cov-report=lcov:../../lcov-py.info && uv run --directory scripts/build-pmtiles coverage report --show-missing > regression/coverage-py.txt",
+    "test:py": "VIRTUAL_ENV= uv run --directory scripts/build-pmtiles pytest --cov=pipeline --cov-report=html --cov-report=term-missing --cov-report=lcov:../../lcov-py.info && VIRTUAL_ENV= uv run --directory scripts/build-pmtiles coverage report --show-missing > regression/coverage-py.txt",
     "test": "yarn test:app && yarn test:py"
   },
   "dependencies": {

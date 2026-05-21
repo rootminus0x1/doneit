@@ -1,6 +1,0 @@
-{
-  "layer": "row",
-  "min_zoom": 0,
-  "max_zoom": 14,
-  "extra_args": ["--drop-densest-as-needed", "--simplification=4", "--force"]
-}

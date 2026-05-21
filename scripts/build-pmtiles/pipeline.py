@@ -5,6 +5,8 @@ No doit-specific code here — pure functions called by dodo.py task actions.
 """
 
 import asyncio
+import bisect
+import configparser
 import hashlib
 import json
 import math
@@ -23,17 +25,19 @@ DRIVE_FOLDER = "DoneIt"
 
 # Per-artifact tippecanoe configuration files.  Changing a config file causes doit to
 # rebuild only that artifact; editing pipeline.py comments does not trigger any rebuild.
-ROW_PMTILES_CONFIG    = Path(__file__).parent / "row-pmtiles.json"
-TRACKS_PMTILES_CONFIG = Path(__file__).parent / "tracks-pmtiles.json"
-PEAKS_PMTILES_CONFIG  = Path(__file__).parent / "peaks-pmtiles.json"
-BAG_CONFIG            = Path(__file__).parent / "bag-config.json"
-ROW_CONFIG            = Path(__file__).parent / "row-config.json"
-TRACKS_CONFIG         = Path(__file__).parent / "tracks-config.json"
+# Keys that every gpx-cache entry must have. Entries missing any of these are evicted and
+# the track re-parsed. Add new keys here whenever parse_gpx_coords is extended to extract
+# additional data — doit's config_changed hash on parse_gpx_coords ensures the task re-runs.
+_REQUIRED_CACHE_ENTRY_KEYS: frozenset[str] = frozenset(
+    {"md5", "mtime", "meta", "tracks", "durationS", "movingTimeS"}
+)
 
+# Peak bagging detection radius. Changing this triggers a full re-bag via doit config_changed.
+BAG_DISTANCE_M: float = 500.0
 
-def _load_pmtiles_config(path: Path) -> dict[str, Any]:
-    with open(path) as f:
-        return json.load(f)  # type: ignore[no-any-return]
+# ROW property filtering. Changing these triggers reprocessing of cached authority files.
+_ROW_KEEP_PROPS: frozenset[str] = frozenset({"Name", "row_type", "authority_name"})
+_ROW_LENGTH_PRECISION: int = 2
 DONEIT_LOCAL = Path(__file__).parent.parent.parent / DRIVE_FOLDER
 GVFS_BASE = Path(f"/run/user/{os.getuid()}/gvfs")
 PEAKS_INDEX_NAME = "peaks-index.json"
@@ -106,8 +110,36 @@ def is_online(timeout: float = 3.0) -> bool:
 # GVFS utilities
 # ---------------------------------------------------------------------------
 
+def _activate_gdrive_mount() -> bool:
+    """Read GOA config and run `gio mount` for the first Google account with Files enabled."""
+    goa_conf = Path.home() / ".config" / "goa-1.0" / "accounts.conf"
+    if not goa_conf.exists():
+        return False
+    cp = configparser.ConfigParser()
+    cp.read(goa_conf)
+    for section in cp.sections():
+        if cp.get(section, "Provider", fallback="").lower() != "google":
+            continue
+        if cp.get(section, "FilesEnabled", fallback="false").lower() != "true":
+            continue
+        identity = cp.get(section, "Identity", fallback="")
+        if not identity:
+            continue
+        log(f"activating Google Drive mount for {identity} ...")
+        subprocess.run(
+            ["gio", "mount", f"google-drive://{identity}/"],
+            capture_output=True, timeout=15,
+        )
+        time.sleep(1)
+        return True
+    return False
+
+
 def find_gdrive_root() -> Path:
     mounts = [p for p in GVFS_BASE.iterdir() if p.name.startswith("google-drive:")]
+    if not mounts:
+        if _activate_gdrive_mount():
+            mounts = [p for p in GVFS_BASE.iterdir() if p.name.startswith("google-drive:")]
     if not mounts:
         sys.exit(
             "Google Drive not found in GVFS.\n"
@@ -200,7 +232,7 @@ def load_peaks_index(peaks_index_path: Path) -> dict[str, Any]:
         return {"version": 2, "generated": "", "categories": [], "bagged": []}
 
 
-_PEAKS_INDEX_KEYS = {"version", "generated", "categories", "bagged", "peak_hash", "bag_distance", "bag_config_hash"}
+_PEAKS_INDEX_KEYS = {"version", "generated", "categories", "bagged", "peak_hash", "bag_distance"}
 
 def save_peaks_index(peaks_index_path: Path, index: dict[str, Any]) -> None:
     out = {k: v for k, v in index.items() if k in _PEAKS_INDEX_KEYS}
@@ -240,7 +272,9 @@ def extract_gpx_metadata_batch(gvfs_paths: list[Path]) -> list[dict[str, str | N
     return json.loads(result.stdout)
 
 
-def parse_gpx_coords(gpx_path: Path, filename: str) -> list[list[list[float]]]:
+def parse_gpx_coords(
+    gpx_path: Path, filename: str
+) -> tuple[list[list[list[float]]], float | None, float | None]:
     try:
         import gpxpy  # type: ignore[import]
     except ImportError:
@@ -250,11 +284,23 @@ def parse_gpx_coords(gpx_path: Path, filename: str) -> list[list[list[float]]]:
             parsed = gpxpy.parse(f)
         except Exception as e:
             print(f"  skip {filename}: {e}", file=sys.stderr)
-            return []
-    return [
+            return [], None, None
+    coords = [
         [[p.longitude, p.latitude, p.elevation or 0.0] for seg in track.segments for p in seg.points]
         for track in parsed.tracks
     ]
+    all_pts = [p for track in parsed.tracks for seg in track.segments for p in seg.points]
+    duration_s: float | None = None
+    if len(all_pts) >= 2 and all_pts[0].time and all_pts[-1].time:
+        duration_s = (all_pts[-1].time - all_pts[0].time).total_seconds()
+    moving_s: float | None = None
+    try:
+        md = parsed.get_moving_data()
+        if md:
+            moving_s = md.moving_time
+    except Exception:
+        pass
+    return coords, duration_s, moving_s
 
 
 def parse_gpx_waypoints(gpx_path: Path, filename: str) -> list[dict[str, Any]]:
@@ -303,9 +349,13 @@ def deploy_to_drive(pairs: list[tuple[Path, Path]]) -> None:
         for src, dst in pairs:
             if not src.exists():
                 continue
-            if dst.exists() and md5(src) == md5(dst):
-                log(f"unchanged: {src.name}")
-                continue
+            if dst.exists():
+                try:
+                    if md5(src) == md5(dst):
+                        log(f"unchanged: {src.name}")
+                        continue
+                except OSError:
+                    pass  # GVFS I/O error reading dst — deploy anyway
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(str(src), str(dst))
             log(f"deployed:  {src.name}")
@@ -359,13 +409,35 @@ def find_country(gdf: Any, sindex: Any, all_coords: list[list[float]]) -> str | 
 # Track feature building
 # ---------------------------------------------------------------------------
 
+def _smooth_elevation_by_distance(coords: list[list[float]], window_m: float) -> list[float]:
+    """Average elevation over a centred horizontal-distance window.
+
+    Using a distance window (not a point-count window) makes the smoothing
+    independent of the GPS recording rate, which varies between devices and
+    activities. This is analogous to what Garmin/Strava do before computing
+    ascent when they cannot use DEM correction.
+    """
+    n = len(coords)
+    eles = [c[2] for c in coords]
+    cum: list[float] = [0.0]
+    for i in range(1, n):
+        cum.append(cum[-1] + haversine_m(coords[i - 1][1], coords[i - 1][0],
+                                          coords[i][1], coords[i][0]))
+    hw = window_m / 2
+    smoothed: list[float] = []
+    for i in range(n):
+        lo = bisect.bisect_left(cum, cum[i] - hw)
+        hi = bisect.bisect_right(cum, cum[i] + hw)
+        smoothed.append(sum(eles[lo:hi]) / (hi - lo))
+    return smoothed
+
+
 def build_track_features(
     entry: dict[str, Any],
     category: str,
     file_id: str | None,
     filename: str,
     unnamed_out: list[str],
-    tracks_cfg: dict[str, Any],
 ) -> list[dict[str, Any]]:
     meta: dict[str, Any] = entry["meta"]
     dt = meta.get("datetime")
@@ -382,23 +454,27 @@ def build_track_features(
             "category": category, "filename": filename, "file_id": file_id,
             "display_name": display_name, "date": date, "datetime": dt,
             "track_type": meta.get("trackType"), "link_text": meta.get("linkText"),
-        }
-        if tracks_cfg.get("compute_length_km", True):
-            props["length_km"] = round(
+            "duration_s": entry.get("durationS"), "moving_time_s": entry.get("movingTimeS"),
+            "length_km": round(
                 sum(haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
                     for i in range(1, len(coords))) / 1000, 2
-            ) if len(coords) > 1 else 0.0
-        if tracks_cfg.get("compute_ascent_m", False):
-            ascent = 0.0
-            for i in range(1, len(coords)):
-                if len(coords[i]) > 2 and len(coords[i - 1]) > 2:
-                    dz = coords[i][2] - coords[i - 1][2]
-                    if dz > 0:
-                        ascent += dz
-            props["ascent_m"] = round(ascent)
+            ) if len(coords) > 1 else 0.0,
+        }
+        ascent = 0.0
+        if len(coords) > 1:
+            smoothed = _smooth_elevation_by_distance(coords, 200.0)
+            ref = smoothed[0]
+            for e in smoothed[1:]:
+                if e < ref:
+                    ref = e
+                elif e - ref >= 8.0:
+                    ascent += e - ref
+                    ref = e
+        props["ascent_m"] = round(ascent)
+        coords_2d = [[c[0], c[1]] for c in coords]
         features.append({
             "type": "Feature",
-            "geometry": {"type": "LineString", "coordinates": coords},
+            "geometry": {"type": "LineString", "coordinates": coords_2d},
             "properties": props,
         })
     return features
@@ -488,43 +564,52 @@ def run_parse_and_bag_tracks(
     """
     cache = load_gpx_cache(cache_path)
 
+    # Evict cache entries that are missing fields required by the current version of
+    # parse_gpx_coords. Stale entries are re-parsed automatically; no --force needed.
+    stale = [k for k, v in cache.items() if not _REQUIRED_CACHE_ENTRY_KEYS.issubset(v)]
+    if stale:
+        missing = sorted({f for k in stale for f in _REQUIRED_CACHE_ENTRY_KEYS if f not in cache[k]})
+        log(f"evicting {len(stale)} stale cache entry/entries (missing field(s): {missing})")
+        for k in stale:
+            del cache[k]
+
     # --- Phase 1: check which tracks need re-parsing ---
     # Fast path: use cached mtime; only read the file for MD5 if mtime changed.
-    t0 = time.perf_counter()
     to_parse: list[tuple[str, str, Path, str]] = []
     md5_reads = 0
-    for category, filename, gvfs_path in all_gpx:
-        key = f"{category}/{filename}"
-        entry = cache.get(key)
-        if entry and "mtime" in entry:
-            try:
-                if gvfs_path.stat().st_mtime == entry["mtime"]:
-                    continue
-            except OSError:
-                pass
-        md5_reads += 1
-        current_md5 = compute_file_md5(gvfs_path)
-        if entry is None or entry.get("md5") != current_md5:
-            to_parse.append((category, filename, gvfs_path, current_md5))
-        elif entry:
-            try:
-                entry["mtime"] = gvfs_path.stat().st_mtime
-            except OSError:
-                pass
+    with phase(f"Checking {len(all_gpx)} track(s) for changes"):
+        for category, filename, gvfs_path in all_gpx:
+            key = f"{category}/{filename}"
+            entry = cache.get(key)
+            if entry and "mtime" in entry:
+                try:
+                    if gvfs_path.stat().st_mtime == entry["mtime"]:
+                        continue
+                except OSError:
+                    pass
+            md5_reads += 1
+            current_md5 = compute_file_md5(gvfs_path)
+            if entry is None or entry.get("md5") != current_md5:
+                to_parse.append((category, filename, gvfs_path, current_md5))
+            elif entry:
+                try:
+                    entry["mtime"] = gvfs_path.stat().st_mtime
+                except OSError:
+                    pass
+            if md5_reads % 10 == 0:
+                log(f"{md5_reads} MD5s read, {len(to_parse)} changed so far ...")
     skipped = len(all_gpx) - md5_reads
-    log(f"{len(to_parse)} of {len(all_gpx)} track(s) changed"
-        f" — {skipped} skipped by mtime, {md5_reads} read ({time.perf_counter() - t0:.1f}s)")
+    log(f"{len(to_parse)} of {len(all_gpx)} changed — {skipped} skipped by mtime, {md5_reads} MD5 reads")
 
     # --- Phase 2: load peaks (before early-return so a peaks-only change triggers re-bag) ---
     all_peaks: dict[str, list[dict[str, Any]]] = {}
     peaks_index: dict[str, Any] | None = None
     full_rebag = False
     if peaks_gpx_files and peaks_index_path:
-        t1 = time.perf_counter()
-        for peak_filename, gvfs_path in sorted(peaks_gpx_files.items()):
-            category = peak_filename[:-4].lower()
-            all_peaks[category] = parse_gpx_waypoints(gvfs_path, peak_filename)
-        log(f"peaks loaded ({time.perf_counter() - t1:.1f}s)")
+        with phase("Loading peaks"):
+            for peak_filename, gvfs_path in sorted(peaks_gpx_files.items()):
+                category = peak_filename[:-4].lower()
+                all_peaks[category] = parse_gpx_waypoints(gvfs_path, peak_filename)
 
         for category, waypoints in sorted(all_peaks.items()):
             seen: dict[str, int] = {}
@@ -543,16 +628,14 @@ def run_parse_and_bag_tracks(
         peaks_index["categories"] = [
             {"name": cat, "count": len(wpts)} for cat, wpts in sorted(all_peaks.items())
         ]
-        bag_config_hash = hashlib.md5(BAG_CONFIG.read_bytes()).hexdigest()
         full_rebag = False
         if peaks_index.get("peak_hash") != peak_hash:
             log("peaks content changed — triggering full re-bag")
             full_rebag = True
-        elif peaks_index.get("bag_config_hash") != bag_config_hash:
-            log("bag config changed — triggering full re-bag")
+        elif peaks_index.get("bag_distance") != bag_distance_m:
+            log("bag distance changed — triggering full re-bag")
             full_rebag = True
         peaks_index["peak_hash"] = peak_hash
-        peaks_index["bag_config_hash"] = bag_config_hash
         peaks_index["bag_distance"] = bag_distance_m
 
     if not to_parse and not full_rebag:
@@ -561,20 +644,22 @@ def run_parse_and_bag_tracks(
 
     # --- Phase 3: parse new/changed tracks ---
     if to_parse:
-        t2 = time.perf_counter()
-        log(f"Parsing {len(to_parse)} new/changed track(s) ...")
-        new_metas = extract_gpx_metadata_batch([p for _, _, p, _ in to_parse])
-        for (cat, fn, path, md5), meta in zip(to_parse, new_metas):
-            key = f"{cat}/{fn}"
-            tracks_coords = parse_gpx_coords(path, fn)
-            mtime: float | None = None
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                pass
-            cache[key] = {"md5": md5, "mtime": mtime, "meta": meta, "tracks": tracks_coords}
-            log(f"cached {key}")
-        log(f"parsed in {time.perf_counter() - t2:.1f}s")
+        with phase(f"Extracting metadata for {len(to_parse)} track(s)"):
+            new_metas = extract_gpx_metadata_batch([p for _, _, p, _ in to_parse])
+        with phase(f"Parsing coords for {len(to_parse)} track(s)"):
+            for (cat, fn, path, md5), meta in zip(to_parse, new_metas):
+                key = f"{cat}/{fn}"
+                tracks_coords, duration_s, moving_s = parse_gpx_coords(path, fn)
+                mtime: float | None = None
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    pass
+                cache[key] = {
+                    "md5": md5, "mtime": mtime, "meta": meta, "tracks": tracks_coords,
+                    "durationS": duration_s, "movingTimeS": moving_s,
+                }
+                log(f"cached {key}")
 
     # --- Phase 4: bagging ---
     if peaks_gpx_files and peaks_index_path and peaks_index is not None:
@@ -635,7 +720,6 @@ def run_build_tracks(
     sindex: Any = None,
 ) -> None:
     """Build tracks.pmtiles and tracks-index.json from the GPX cache."""
-    tracks_cfg = json.loads(TRACKS_CONFIG.read_text())
     index_entries: list[dict[str, Any]] = []
     unnamed_tracks: list[str] = []
     unknown_country_tracks: list[str] = []
@@ -651,7 +735,7 @@ def run_build_tracks(
                 entry = cache.get(f"{category}/{filename}")
                 if not entry:
                     continue
-                features = build_track_features(entry, category, file_id, filename, unnamed_tracks, tracks_cfg)
+                features = build_track_features(entry, category, file_id, filename, unnamed_tracks)
                 for feature in features:
                     out.write(json.dumps(feature) + "\n")
                     total += 1
@@ -684,14 +768,13 @@ def run_build_tracks(
                 print(line, file=sys.stderr)
 
         pmtiles_tmp = tmp / "tracks.pmtiles"
-        cfg = _load_pmtiles_config(TRACKS_PMTILES_CONFIG)
         with phase(f"Running tippecanoe for {total} track(s)"):
             subprocess.run(
                 [
                     "tippecanoe", "-o", str(pmtiles_tmp),
-                    "-l", cfg["layer"],
-                    f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
-                    *cfg["extra_args"],
+                    "-l", "tracks", "-Z0", "-z14",
+                    "--no-feature-limit", "--no-tile-size-limit",
+                    "--simplification=4", "--coalesce-densest-as-needed", "--force",
                     str(geojsonseq),
                 ],
                 check=True,
@@ -718,9 +801,6 @@ def run_build_tracks(
 async def _fetch_row_async(
     tasks: list[tuple[str, str, int]],
     etags: dict[str, Any],
-    keep_props: frozenset[str],
-    compute_length: bool,
-    length_precision: int,
 ) -> tuple[dict[str, list[dict[str, Any]]], set[str], dict[str, Any], int, int]:
     """Fetch all ROW data concurrently over HTTP/2.
 
@@ -769,13 +849,12 @@ async def _fetch_row_async(
                         keep: dict[str, object] = {"row_type": row_type, "authority_name": name}
                         if "Name" in p:
                             keep["Name"] = p["Name"]
-                        if compute_length:
-                            coords = (f.get("geometry") or {}).get("coordinates") or []
-                            length_m = sum(
-                                haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
-                                for i in range(1, len(coords))
-                            ) if len(coords) > 1 else 0.0
-                            keep["length_km"] = round(length_m / 1000, length_precision)
+                        coords = (f.get("geometry") or {}).get("coordinates") or []
+                        length_m = sum(
+                            haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
+                            for i in range(1, len(coords))
+                        ) if len(coords) > 1 else 0.0
+                        keep["length_km"] = round(length_m / 1000, _ROW_LENGTH_PRECISION)
                         f["properties"] = keep
                     return code, type_num, "changed", features, new_etag or None
                 except httpx.HTTPStatusError as e:
@@ -855,12 +934,9 @@ def fetch_row_geojson(output_path: Path) -> None:
 
     _ROW_CACHE_DIR.mkdir(exist_ok=True)
 
-    _row_cfg_bytes = ROW_CONFIG.read_bytes()
-    _row_cfg = json.loads(_row_cfg_bytes)
-    _row_config_hash = hashlib.md5(_row_cfg_bytes).hexdigest()
-    _keep_props: frozenset[str] = frozenset(_row_cfg.get("keep_properties", ["Name", "row_type", "authority_name"]))
-    _compute_length = bool(_row_cfg.get("compute_length_km", True))
-    _length_precision = int(_row_cfg.get("length_km_precision", 3))
+    _row_config_hash = hashlib.md5(
+        json.dumps(sorted(_ROW_KEEP_PROPS) + [_ROW_LENGTH_PRECISION]).encode()
+    ).hexdigest()
 
     authorities = _scrape_row_authorities()
 
@@ -896,13 +972,11 @@ def fetch_row_geojson(output_path: Path) -> None:
 
     with phase(f"Fetching ROW data ({len(authorities)} authorities × {len(_ROW_TYPES)} types)"):
         new_features, changed_authorities, etag_updates, _unchanged, _errors = asyncio.run(
-            _fetch_row_async(tasks, etags, _keep_props, _compute_length, _length_precision)
+            _fetch_row_async(tasks, etags)
         )
     new_etags.update(etag_updates)
 
-    # When row-config.json changes, reprocess all cached authority files with the new config.
-    # This updates property filtering and recomputes derived fields (e.g. length_km from geometry)
-    # without re-downloading anything.
+    # When ROW constants change, reprocess all cached authority files without re-downloading.
     config_reprocessed: set[str] = set()
     if etags.get("config_hash") != _row_config_hash:
         for code in sorted(authorities):
@@ -915,14 +989,13 @@ def fetch_row_geojson(output_path: Path) -> None:
                 cached = json.loads(cache_file.read_text())
                 for f in cached:
                     p = f.get("properties") or {}
-                    new_p: dict[str, object] = {k: v for k, v in p.items() if k in _keep_props}
-                    if _compute_length:
-                        coords = (f.get("geometry") or {}).get("coordinates") or []
-                        length_m = sum(
-                            haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
-                            for i in range(1, len(coords))
-                        ) if len(coords) > 1 else 0.0
-                        new_p["length_km"] = round(length_m / 1000, _length_precision)
+                    new_p: dict[str, object] = {k: v for k, v in p.items() if k in _ROW_KEEP_PROPS}
+                    coords = (f.get("geometry") or {}).get("coordinates") or []
+                    length_m = sum(
+                        haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
+                        for i in range(1, len(coords))
+                    ) if len(coords) > 1 else 0.0
+                    new_p["length_km"] = round(length_m / 1000, _ROW_LENGTH_PRECISION)
                     f["properties"] = new_p
                 cache_file.write_text(json.dumps(cached, separators=(",", ":")))
                 config_reprocessed.add(code)
@@ -975,16 +1048,14 @@ def fetch_row_geojson(output_path: Path) -> None:
 
 def run_build_row_pmtiles(geojson_path: Path, pmtiles_path: Path) -> None:
     """Convert row.geojson → row.pmtiles using tippecanoe."""
-    cfg = _load_pmtiles_config(ROW_PMTILES_CONFIG)
     with tempfile.TemporaryDirectory(prefix="doneit-row-") as tmpdir:
         tmp = Path(tmpdir) / "row.pmtiles"
         with phase("Running tippecanoe for ROW"):
             subprocess.run(
                 [
                     "tippecanoe", "-o", str(tmp),
-                    "-l", cfg["layer"],
-                    f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
-                    *cfg["extra_args"],
+                    "-l", "row", "-Z0", "-z14",
+                    "--drop-densest-as-needed", "--simplification=4", "--force",
                     str(geojson_path),
                 ],
                 check=True,
@@ -1026,14 +1097,12 @@ def run_build_peaks_pmtiles(
             return
 
         pmtiles_tmp = tmp / "peaks.pmtiles"
-        cfg = _load_pmtiles_config(PEAKS_PMTILES_CONFIG)
         with phase(f"Running tippecanoe for {total} peaks"):
             subprocess.run(
                 [
                     "tippecanoe", "-o", str(pmtiles_tmp),
-                    "-l", cfg["layer"],
-                    f"-Z{cfg['min_zoom']}", f"-z{cfg['max_zoom']}",
-                    *cfg["extra_args"],
+                    "-l", "peaks", "-Z0", "-z14",
+                    "-r1", "--no-feature-limit", "--no-tile-size-limit", "--force",
                     str(geojsonseq),
                 ],
                 check=True,

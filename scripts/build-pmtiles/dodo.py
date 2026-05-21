@@ -18,7 +18,9 @@ Run:  uv run doit                         (default: build_row_pmtiles build_trac
       uv run doit build_peaks_pmtiles
 """
 
+import hashlib
 import json
+import marshal
 import os
 import sys
 from pathlib import Path
@@ -26,6 +28,12 @@ from typing import Any
 
 import pipeline
 from doit.reporter import ConsoleReporter
+from doit.tools import config_changed
+
+
+def _fn_hash(*fns) -> str:
+    """Hash the bytecode of one or more functions. Changes when logic changes; immune to comments."""
+    return hashlib.sha1(b"".join(marshal.dumps(f.__code__) for f in fns)).hexdigest()
 
 
 class _PhaseReporter(ConsoleReporter):
@@ -50,7 +58,6 @@ DOIT_CONFIG = {
 # Config from environment (set by build.py before invoking doit)
 # ---------------------------------------------------------------------------
 _FOLDER = os.environ.get("DONEIT_FOLDER", pipeline.DRIVE_FOLDER)
-_BAG_DISTANCE = float(json.loads(pipeline.BAG_CONFIG.read_text())["bag_distance"])
 
 # ---------------------------------------------------------------------------
 # Local output paths — defined in pipeline.py alongside the source paths
@@ -115,7 +122,6 @@ def task_fetch_row() -> dict[str, Any]:
 
     return {
         "actions": [action],
-        "file_dep": [str(pipeline.ROW_CONFIG)],
         "targets": [str(pipeline.ROW_GEOJSON_PATH)],
         "uptodate": [False],
     }
@@ -128,7 +134,8 @@ def task_build_row_pmtiles() -> dict[str, Any]:
             pipeline.run_build_row_pmtiles(pipeline.ROW_GEOJSON_PATH, pipeline.ROW_PMTILES_PATH)
 
     return {
-        "file_dep": [str(pipeline.ROW_GEOJSON_PATH), str(pipeline.ROW_PMTILES_CONFIG)],
+        "file_dep": [str(pipeline.ROW_GEOJSON_PATH)],
+        "uptodate": [config_changed({"build_fn": _fn_hash(pipeline.run_build_row_pmtiles)})],
         "targets": [str(pipeline.ROW_PMTILES_PATH)],
         "actions": [action],
         "task_dep": ["fetch_row"],
@@ -146,7 +153,7 @@ def task_parse_and_bag_tracks() -> dict[str, Any]:
                 _all_gpx, _cache_path,
                 _peaks_gpx if _peaks_folder else None,
                 _local_peaks_index if _peaks_folder else None,
-                _BAG_DISTANCE,
+                pipeline.BAG_DISTANCE_M,
             )
             pipeline.save_gpx_cache(_cache_path, cache)
 
@@ -155,7 +162,12 @@ def task_parse_and_bag_tracks() -> dict[str, Any]:
         targets.append(str(_local_peaks_index))
 
     return {
-        "file_dep": gpx_paths + peak_gpx_paths + [str(pipeline.BAG_CONFIG)],
+        "file_dep": gpx_paths + peak_gpx_paths,
+        "uptodate": [config_changed({
+            "parse_fn": _fn_hash(pipeline.parse_gpx_coords),
+            "required_keys": sorted(pipeline._REQUIRED_CACHE_ENTRY_KEYS),
+            "bag_distance": pipeline.BAG_DISTANCE_M,
+        })],
         "targets": targets,
         "actions": [action],
     }
@@ -173,7 +185,11 @@ def task_build_tracks() -> dict[str, Any]:
             )
 
     return {
-        "file_dep": [str(_cache_path), str(pipeline.TRACKS_PMTILES_CONFIG), str(pipeline.TRACKS_CONFIG)],
+        "file_dep": [str(_cache_path)],
+        "uptodate": [config_changed({"build_fn": _fn_hash(
+            pipeline.build_track_features,
+            pipeline._smooth_elevation_by_distance,
+        )})],
         "targets": [str(_local_tracks_pmtiles), str(_local_tracks_index)],
         "actions": [action],
         "task_dep": ["parse_and_bag_tracks"],
@@ -192,7 +208,8 @@ def task_build_peaks_pmtiles() -> dict[str, Any]:
             pipeline.run_build_peaks_pmtiles(_peaks_gpx, _local_peaks_pmtiles)
 
     return {
-        "file_dep": peak_gpx_paths + [str(_local_peaks_index), str(pipeline.PEAKS_PMTILES_CONFIG)],
+        "file_dep": peak_gpx_paths + [str(_local_peaks_index)],
+        "uptodate": [config_changed({"build_fn": _fn_hash(pipeline.run_build_peaks_pmtiles)})],
         "targets": [str(_local_peaks_pmtiles)],
         "actions": [action],
         "task_dep": ["parse_and_bag_tracks"],

@@ -245,3 +245,105 @@ def test_bbox_returns_none_for_empty_features():
 
 def test_bbox_returns_none_for_empty_coordinates():
     assert pipeline.bbox_from_features([_make_feature([])]) is None
+
+
+# ---------------------------------------------------------------------------
+# _smooth_elevation_by_distance
+# ---------------------------------------------------------------------------
+
+def _coords_along_lat(n: int, spacing_m: float, eles: list[float]) -> list[list[float]]:
+    """n points spaced spacing_m apart along lat=57°N, with given elevations [lng, lat, ele]."""
+    # At 57°N, 1° longitude ≈ 60 509 m
+    dlng = spacing_m / 60_509.0
+    return [[-4.0 + i * dlng, 57.0, eles[i]] for i in range(n)]
+
+
+def test_smooth_elevation_constant():
+    """Constant elevation: smoothing must return the same value everywhere."""
+    coords = _coords_along_lat(50, 10.0, [100.0] * 50)
+    smoothed = pipeline._smooth_elevation_by_distance(coords, 200.0)
+    assert len(smoothed) == 50
+    for v in smoothed:
+        assert v == pytest.approx(100.0)
+
+
+def test_smooth_elevation_window_larger_than_track():
+    """Window wider than the whole track: every output should equal the overall mean."""
+    eles = [float(i) for i in range(10)]  # 0.0 … 9.0
+    coords = _coords_along_lat(10, 10.0, eles)          # track length = 90 m
+    smoothed = pipeline._smooth_elevation_by_distance(coords, 1_000.0)  # 1 km window
+    mean = sum(eles) / len(eles)
+    for v in smoothed:
+        assert v == pytest.approx(mean)
+
+
+def test_smooth_elevation_suppresses_short_period_oscillation():
+    """Oscillations with period equal to the window width should be nearly eliminated.
+
+    A box filter of width W has a zero at spatial frequency 1/W (period = W),
+    so sinc(W / W) = sinc(1) = 0. Interior points should be very close to the
+    mean elevation (0) after smoothing.
+    """
+    import math
+    n, spacing_m = 100, 5.0
+    amplitude, period_pts = 5.0, 10      # period = 50 m, window = 200 m → sinc(4) ≈ 0
+    eles = [amplitude * math.sin(2 * math.pi * i / period_pts) for i in range(n)]
+    coords = _coords_along_lat(n, spacing_m, eles)
+    smoothed = pipeline._smooth_elevation_by_distance(coords, 200.0)
+    # Interior points (clear of both edges) should have negligible amplitude.
+    for v in smoothed[20:80]:
+        assert abs(v) < 1.0
+
+
+# ---------------------------------------------------------------------------
+# build_track_features — ascent calculation
+# ---------------------------------------------------------------------------
+
+def _make_track_entry(coords_3d: list[list[float]]) -> dict:
+    return {
+        "meta": {
+            "displayName": "Test Track",
+            "datetime": "2024-06-15T09:00:00Z",
+            "trackType": "hiking",
+            "linkText": None,
+        },
+        "tracks": [coords_3d],
+        "durationS": 3600.0,
+        "movingTimeS": 3200.0,
+    }
+
+
+def test_ascent_loch_gps_noise_gives_zero():
+    """GPS noise on flat water must not produce false ascent.
+
+    Regression test for activity_22784808165.gpx (Highlands Kayaking, Loch Lochy):
+    2714 pts, elevation range −2.6 m to 4.6 m, naive sum-of-positive-diffs = 76 m.
+
+    The fix uses a 200 m distance-based smoothing window + 8 m hysteresis threshold.
+    With a sinusoidal oscillation of period 200 m (= window width), the box filter
+    response is sinc(1) = 0, completely eliminating the oscillation in the interior.
+    Peak-to-valley amplitude after smoothing is < 8 m, so the threshold never fires.
+    """
+    import math
+    n, spacing_m = 300, 4.0          # similar density to the real loch track
+    amplitude, period_pts = 3.6, 50  # range 7.2 m, period 200 m — matches real data
+    eles = [1.0 + amplitude * math.sin(2 * math.pi * i / period_pts) for i in range(n)]
+    coords = _coords_along_lat(n, spacing_m, eles)
+    features = pipeline.build_track_features(_make_track_entry(coords), "canoeing", None, "test.gpx", [])
+    assert features[0]["properties"]["ascent_m"] == 0
+
+
+def test_ascent_genuine_sustained_climb_is_captured():
+    """A real continuous ascent must be substantially captured.
+
+    Uses a flat warm-up section so the reference elevation is settled before the
+    climb starts, minimising the edge-effect loss at the start of the ramp.
+    """
+    n_flat, n_climb, spacing_m = 30, 150, 10.0  # 300 m flat, then 1 500 m climb
+    total_climb = 300.0                           # 2 m per step over 150 steps
+    eles = [0.0] * n_flat + [total_climb * i / n_climb for i in range(n_climb + 1)]
+    coords = _coords_along_lat(n_flat + n_climb + 1, spacing_m, eles)
+    features = pipeline.build_track_features(_make_track_entry(coords), "hillwalking", None, "test.gpx", [])
+    ascent = features[0]["properties"]["ascent_m"]
+    # Allow for the trailing edge effect (last ~100 m window) and 8 m threshold rounding.
+    assert ascent >= 250

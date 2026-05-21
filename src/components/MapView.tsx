@@ -6,7 +6,7 @@ import type { TileSource } from '../lib/tileConfig';
 import { buildRasterStyle } from '../lib/tileConfig';
 import type { TrackCategory, PeakShape } from '../hooks/useDriveData';
 import type { LoadedTrack } from '../hooks/useViewportTracks';
-import type { FeatureCollection, Point } from 'geojson';
+import type { FeatureCollection, Geometry, Point } from 'geojson';
 import type { TrackBbox } from '../lib/gpxParser';
 
 function generatePeakIcon(shape: PeakShape, color: string, strokeColor: string, radius: number): ImageData {
@@ -62,6 +62,8 @@ interface TrackPopupData {
     fileId: string | null;
     lengthKm: number | null;
     ascentM: number | null;
+    durationS: number | null;
+    movingTimeS: number | null;
 }
 
 interface OverlayPopupData {
@@ -139,12 +141,13 @@ const overlayInnerLayerId = (id: string) => `overlay-${id}-inner`;
 const HIGHLIGHT_SOURCE = 'highlight-line';
 const HIGHLIGHT_GLOW_LAYER = 'highlight-line-glow';
 const HIGHLIGHT_LAYER = 'highlight-line';
+export const HIGHLIGHT_COLOR = '#06b6d4';
 
 // True on touch-only devices (phones/tablets with no mouse hover support).
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
 const IS_TOUCH = window.matchMedia('(hover: none)').matches;
 
-function setHighlightGeom(map: maplibregl.Map, geom: ReturnType<typeof maplibregl.Map.prototype.queryRenderedFeatures>[number]['geometry'] | null): void {
+function setHighlightGeom(map: maplibregl.Map, geom: Geometry | null): void {
     const src = map.getSource(HIGHLIGHT_SOURCE) as maplibregl.GeoJSONSource | undefined;
     if (!src) return;
     if (geom && (geom.type === 'LineString' || geom.type === 'MultiLineString')) {
@@ -156,6 +159,40 @@ function setHighlightGeom(map: maplibregl.Map, geom: ReturnType<typeof maplibreg
     }
 }
 
+// Collect all tile fragments for the feature identified by props[matchProp] and highlight
+// the merged geometry. Vector tile sources clip features at tile boundaries, so a single
+// logical feature may arrive as many fragments — this merges them into one MultiLineString.
+// Uses queryRenderedFeatures (rendered tile cache) rather than querySourceFeatures so it
+// works correctly with Drive-backed PMTiles sources.
+function highlightAllFragments(map: maplibregl.Map, layerId: string, props: Record<string, unknown>, matchProp: string, fallbackGeom: Geometry | null): void {
+    const matchVal = props[matchProp];
+    if (matchVal === undefined || matchVal === null) {
+        setHighlightGeom(map, fallbackGeom);
+        return;
+    }
+
+    const filter = ['==', ['get', matchProp], matchVal] as unknown as maplibregl.FilterSpecification;
+    const canvas = map.getCanvas();
+    const fragments = map.queryRenderedFeatures(
+        [[0, 0], [canvas.width, canvas.height]],
+        { layers: [layerId], filter },
+    );
+
+    const rings: number[][][] = [];
+    for (const f of fragments) {
+        if (f.geometry.type === 'LineString') rings.push(f.geometry.coordinates);
+        else if (f.geometry.type === 'MultiLineString') rings.push(...f.geometry.coordinates);
+    }
+    if (rings.length === 0) {
+        setHighlightGeom(map, fallbackGeom);
+        return;
+    }
+    const geom: Geometry = rings.length === 1
+        ? { type: 'LineString', coordinates: rings[0] }
+        : { type: 'MultiLineString', coordinates: rings };
+    setHighlightGeom(map, geom);
+}
+
 // Single point where MapLibre layer events are bound. All layer types use this so the
 // click/hover pattern can't diverge between tracks, peaks, and overlays.
 //
@@ -163,6 +200,9 @@ function setHighlightGeom(map: maplibregl.Map, geom: ReturnType<typeof maplibreg
 // clickOnAll=false (peaks):            click fires on touch only; hover fires on non-touch.
 // isLine=true      (tracks, overlays): hover shows/clears highlight; mouseleave clears it.
 // isLine=false     (peaks):            no highlight — prevents peak mouseleave clearing a line highlight.
+// matchProp        (PMTiles sources):  property used to identify the full feature across tile fragments.
+//                                      When set, querySourceFeatures gathers all fragments so the
+//                                      entire visible track/path is highlighted, not just the current tile.
 function bindInteraction(
     map: maplibregl.Map,
     layerId: string,
@@ -171,12 +211,23 @@ function bindInteraction(
     hoverRef: { current: (d: PopupData | null) => void },
     clickOnAll = true,
     isLine = true,
+    matchProp?: string,
 ): void {
+    const applyHighlight = (e: { features?: maplibregl.MapGeoJSONFeature[] }) => {
+        if (!isLine) return;
+        const props = e.features?.[0]?.properties ?? {};
+        if (matchProp) {
+            highlightAllFragments(map, layerId, props, matchProp, e.features?.[0]?.geometry ?? null);
+        } else {
+            setHighlightGeom(map, e.features?.[0]?.geometry ?? null);
+        }
+    };
+
     if (clickOnAll || IS_TOUCH) {
         map.on('click', layerId, e => {
             const data = getData(e);
             if (data) {
-                if (isLine) setHighlightGeom(map, e.features?.[0]?.geometry ?? null);
+                applyHighlight(e);
                 clickRef.current(data);
             }
         });
@@ -184,7 +235,7 @@ function bindInteraction(
     if (!IS_TOUCH) {
         map.on('mouseenter', layerId, e => {
             map.getCanvas().style.cursor = 'pointer';
-            if (isLine) setHighlightGeom(map, e.features?.[0]?.geometry ?? null);
+            applyHighlight(e);
             hoverRef.current(getData(e));
         });
         map.on('mouseleave', layerId, () => {
@@ -269,6 +320,8 @@ function buildTrackPopup(props: Record<string, unknown>): TrackPopupData {
         fileId: props.file_id ? String(props.file_id) : null,
         lengthKm: typeof props.length_km === 'number' ? props.length_km : null,
         ascentM: typeof props.ascent_m === 'number' ? props.ascent_m : null,
+        durationS: typeof props.duration_s === 'number' ? props.duration_s : null,
+        movingTimeS: typeof props.moving_time_s === 'number' ? props.moving_time_s : null,
     };
 }
 
@@ -531,7 +584,7 @@ export function MapView({
                             'line-opacity': ov.lineStyle.outerOpacity,
                         },
                     });
-                    bindInteraction(map, outerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef);
+                    bindInteraction(map, outerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef, true, true, 'Name');
                 }
                 if (!map.getLayer(innerId)) {
                     map.addLayer({
@@ -543,7 +596,7 @@ export function MapView({
                             'line-opacity': 1,
                         },
                     });
-                    bindInteraction(map, innerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef);
+                    bindInteraction(map, innerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef, true, true, 'Name');
                 }
             } else {
                 const layId = overlayLayerId(ov.id);
@@ -557,7 +610,7 @@ export function MapView({
                             'line-opacity': ov.overlayOpacity ?? 0.75,
                         },
                     });
-                    bindInteraction(map, layId, getOverlayData, onFeatureClickRef, onFeatureHoverRef);
+                    bindInteraction(map, layId, getOverlayData, onFeatureClickRef, onFeatureHoverRef, true, true, 'Name');
                 }
             }
         }
@@ -605,6 +658,8 @@ export function MapView({
                     fileId: track.fileId,
                     lengthKm: null,
                     ascentM: null,
+                    durationS: null,
+                    movingTimeS: null,
                 }), onFeatureClickRef, onFeatureHoverRef);
             }
         }
@@ -642,7 +697,7 @@ export function MapView({
             bindInteraction(map, lid, e => {
                 const p = e.features?.[0]?.properties;
                 return p ? { kind: 'track', ...buildTrackPopup(p) } : null;
-            }, onFeatureClickRef, onFeatureHoverRef);
+            }, onFeatureClickRef, onFeatureHoverRef, true, true, 'filename');
         }
     }, [tracksPmtilesFileId, categories, mapVersion]);
 
@@ -857,7 +912,7 @@ export function MapView({
                 type: 'line',
                 source: HIGHLIGHT_SOURCE,
                 paint: {
-                    'line-color': '#06b6d4',
+                    'line-color': HIGHLIGHT_COLOR,
                     'line-width': 4,
                     'line-opacity': 0.95,
                 },

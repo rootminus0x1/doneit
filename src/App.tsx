@@ -4,7 +4,7 @@ import { useGoogleAuth } from './hooks/useGoogleAuth';
 import { useDriveData } from './hooks/useDriveData';
 import { useTileSource } from './hooks/useTileSource';
 import { useUnindexedTracks } from './hooks/useViewportTracks';
-import { MapView } from './components/MapView';
+import { MapView, HIGHLIGHT_COLOR } from './components/MapView';
 import type { PopupData } from './components/MapView';
 import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
@@ -73,6 +73,20 @@ function formatDate(date: string): string {
     const d = new Date(date + 'T12:00:00');
     if (isNaN(d.getTime())) return date;
     return `${String(d.getDate()).padStart(2, '0')}-${MONTHS[d.getMonth()]}-${d.getFullYear()}`;
+}
+
+function formatDuration(s: number): string {
+    const totalSec = Math.round(s);
+    if (totalSec < 60) return `${totalSec}s`;
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    if (hours < 24) return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return remHours > 0 ? `${days}d ${remHours}h ${remMins}m` : `${days}d ${remMins}m`;
 }
 
 function formatKm(km: number, decimals: number, nautical = false): string {
@@ -400,13 +414,23 @@ export default function App() {
                         feature.lengthKm !== null ? formatKm(feature.lengthKm, 1, feature.category === 'sailing') : null,
                         feature.ascentM !== null ? `↑${feature.ascentM.toLocaleString()} m` : null,
                     ].filter(Boolean).join(' · ');
+                    const timingParts = [
+                        feature.durationS !== null ? formatDuration(feature.durationS) : null,
+                        feature.movingTimeS !== null && feature.durationS !== null && (feature.durationS - feature.movingTimeS) > 60
+                            ? `${formatDuration(feature.movingTimeS)} moving`
+                            : null,
+                    ].filter(Boolean).join(' · ');
+                    const datetimeLine = [
+                        feature.datetime ? formatDatetime(feature.datetime) : null,
+                        timingParts || null,
+                    ].filter(Boolean).join(' · ');
+                    const typeLine = [feature.trackType, distLine || null].filter(Boolean).join(' · ');
+                    const sourceLine = [feature.linkText, feature.filename].filter(Boolean).join(' — ');
                     body = (
                         <>
-                            {feature.trackType && <div>{feature.trackType}</div>}
-                            <div>{feature.filename}</div>
-                            {feature.datetime && <div>{formatDatetime(feature.datetime)}</div>}
-                            {distLine && <div>{distLine}</div>}
-                            {feature.linkText && <div>{feature.linkText}</div>}
+                            {datetimeLine && <div>{datetimeLine}</div>}
+                            {typeLine && <div>{typeLine}</div>}
+                            <div>{sourceLine}</div>
                             {baggedNames.length > 0 && (
                                 <div style={{ marginTop: 4 }}>✔ {baggedNames.join(', ')}</div>
                             )}
@@ -460,7 +484,11 @@ export default function App() {
                         onClick={pinned ? () => setClickedFeature(null) : undefined}
                     >
                         <div
-                            style={{ ...styles.popup, pointerEvents: pinned ? 'auto' : 'none' }}
+                            style={{
+                                ...styles.popup,
+                                pointerEvents: pinned ? 'auto' : 'none',
+                                ...(feature.kind !== 'peak' ? { outline: `2px solid ${HIGHLIGHT_COLOR}` } : {}),
+                            }}
                             onClick={e => e.stopPropagation()}
                         >
                             <div style={styles.popupTitle}>{title}</div>

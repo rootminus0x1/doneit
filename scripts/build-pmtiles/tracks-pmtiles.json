@@ -1,6 +1,0 @@
-{
-  "layer": "tracks",
-  "min_zoom": 0,
-  "max_zoom": 14,
-  "extra_args": ["--no-feature-limit", "--no-tile-size-limit", "--simplification=4", "--coalesce-densest-as-needed", "--force"]
-}

@@ -1,9 +1,0 @@
-{
-  "keep_properties": [
-    "Name",
-    "row_type",
-    "authority_name"
-  ],
-  "compute_length_km": true,
-  "length_km_precision": 2
-}

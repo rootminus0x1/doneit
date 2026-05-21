@@ -44,6 +44,30 @@ afterEach(() => {
 
 Apply this pattern to any `describe` block whose code under test logs to the console during normal operation.
 
+### Testing the build pipeline
+
+The Python build pipeline has a pytest suite at `scripts/build-pmtiles/tests/test_pipeline.py`. Run it with:
+
+```
+yarn test:py
+```
+
+or, to run a single test:
+
+```
+VIRTUAL_ENV= uv run --directory scripts/build-pmtiles pytest tests/test_pipeline.py::test_name -v
+```
+
+**Red-green TDD for pipeline changes:** Before implementing any change to a pure function in `pipeline.py` (new track property, algorithm change, new helper):
+
+1. Write a failing test that asserts the correct behaviour. Run `yarn test:py` to confirm it fails.
+2. Implement the change.
+3. Run `yarn test:py` again to confirm it passes.
+
+**What to test:** any pure function that derives a value from GPS data — ascent, length, smoothing, bagging detection. Tests should use synthetic coordinate data constructed inline (`[lng, lat, ele]` lists), not real GPX files. No file I/O, network access, or doit imports in unit tests.
+
+**Helper pattern for coordinate data:** build synthetic tracks with `_coords_along_lat(n, spacing_m, eles)` — n points along lat=57°N spaced `spacing_m` metres apart with the given elevation list. This produces realistic `[lng, lat, ele]` triples without reading any files.
+
 ### Questions vs instructions
 When a message ends with "?", it is a question to be answered in the reply — not an instruction to act on. Answer it before doing anything else, and do not treat it as a directive to change code or behaviour.
 
@@ -75,6 +99,26 @@ DoneIt/                       ← gitignored; local mirror of the DoneIt Google 
 
 `yarn data:local` — builds artifacts into `DoneIt/` only (no network write).  
 `yarn data` — builds then deploys: copies changed files from `DoneIt/` to Google Drive via GVFS. Deploy is MD5-checked by doit so only changed files are copied.
+
+**When adding new properties to PMTiles track features:**
+
+All track properties are always computed — there are no user-facing toggles. The build system uses code hashes to detect when a rebuild is needed:
+
+- `dodo.py` hashes the bytecode of `build_track_features` via `_fn_hash()`. Any logic change to that function automatically marks `task_build_tracks` out-of-date on the next run — the PMTiles are rebuilt from the existing cache without re-parsing GPX files.
+- `dodo.py` hashes `parse_gpx_coords` and `_REQUIRED_CACHE_ENTRY_KEYS` together. Any change to what the function extracts marks `task_parse_and_bag_tracks` out-of-date.
+
+If the new property requires new data extracted from GPX (i.e. `parse_gpx_coords` changes):
+1. Add the new cache field name to `_REQUIRED_CACHE_ENTRY_KEYS` in `pipeline.py`. Cache entries missing that key are evicted and their tracks re-parsed automatically.
+2. The bytecode hash of the changed function, combined with the updated `_REQUIRED_CACHE_ENTRY_KEYS`, ensures the task re-runs — no `--force` needed.
+
+### Build pipeline logging
+
+All output in the build pipeline (`dodo.py`, `pipeline.py`) must use the `phase()` / `log()` mechanism from `pipeline.py`. Never use `print()` directly and never compute timing inline with `time.perf_counter()`.
+
+- `with phase("Descriptive label"):` — wraps a named operation. Prints `label ...` on entry and `label done (took N.Ns)` on exit. Use for every distinct timed operation (loading cache, checking tracks, extracting metadata, running tippecanoe, etc.).
+- `log("message")` — prints a message indented to the current phase depth. Use for progress within a phase or for summary lines after one.
+
+**Log frequency:** loops over large collections (GPX files, cache entries, tracks to parse) must emit a `log()` progress update at a frequency that is informative without being noisy. A progress line every 10 items is the default. Do not wait until the end of a slow loop to print anything.
 
 No `.env` files of any kind are committed. Locally, all env vars (just `VITE_GOOGLE_CLIENT_ID`) go in `.env.local` (gitignored). In GitHub Actions, `VITE_GOOGLE_CLIENT_ID` is passed via `secrets.*`. See `.github/workflows/deploy.yml`.
 
