@@ -144,11 +144,23 @@ export const HIGHLIGHT_COLOR = '#06b6d4';
 
 const HEADING_SOURCE = 'user-heading-cone';
 const HEADING_LAYER = 'user-heading-cone-fill';
+const TRAVEL_SOURCE = 'user-travel-direction';
+const TRAVEL_LAYER = 'user-travel-direction-fill';
 
-function buildHeadingCone(lng: number, lat: number, headingDeg: number): GeoJSON.FeatureCollection {
+// At zoom z with 512px tiles, one pixel = this many metres at the given latitude.
+function metersPerPixel(zoom: number, lat: number): number {
+    return (40075016.686 * Math.cos(lat * Math.PI / 180)) / (512 * Math.pow(2, zoom));
+}
+
+// Convert local east/north metre offsets to a [lng, lat] point.
+function offsetGeo(lng: number, lat: number, eM: number, nM: number): [number, number] {
+    return [lng + eM / (111320 * Math.cos(lat * Math.PI / 180)), lat + nM / 111320];
+}
+
+function buildHeadingCone(lng: number, lat: number, headingDeg: number, zoom: number): GeoJSON.FeatureCollection {
     const toRad = Math.PI / 180;
-    const radiusM = 80;
-    const halfWidthDeg = 30;
+    const radiusM = 50 * metersPerPixel(zoom, lat); // 50 px regardless of zoom
+    const halfWidthDeg = 20; // 40° total arc
     const steps = 24;
     const coords: [number, number][] = [[lng, lat]];
     for (let i = 0; i <= steps; i++) {
@@ -159,6 +171,21 @@ function buildHeadingCone(lng: number, lat: number, headingDeg: number): GeoJSON
     }
     coords.push([lng, lat]);
     return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} }] };
+}
+
+// Small arrowhead triangle sitting at outerRadius px from the user, apex pointing in headingDeg.
+function buildTravelTriangle(lng: number, lat: number, headingDeg: number, zoom: number): GeoJSON.FeatureCollection {
+    const mpp = metersPerPixel(zoom, lat);
+    const hr = headingDeg * Math.PI / 180;
+    const fwdE = Math.sin(hr), fwdN = Math.cos(hr);
+    const rgtE = Math.cos(hr), rgtN = -Math.sin(hr);
+    const outerR = 70 * mpp;  // sits outside the 50px compass cone
+    const halfH  =  6 * mpp;  // ±6px along heading axis
+    const halfW  =  5 * mpp;  // ±5px perpendicular
+    const apex = offsetGeo(lng, lat, (outerR + halfH) * fwdE,                       (outerR + halfH) * fwdN);
+    const bL   = offsetGeo(lng, lat, (outerR - halfH) * fwdE - halfW * rgtE,        (outerR - halfH) * fwdN - halfW * rgtN);
+    const bR   = offsetGeo(lng, lat, (outerR - halfH) * fwdE + halfW * rgtE,        (outerR - halfH) * fwdN + halfW * rgtN);
+    return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[bL, apex, bR, bL]] }, properties: {} }] };
 }
 
 // True on touch-only devices (phones/tablets with no mouse hover support).
@@ -303,7 +330,8 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             id === PEAKS_PMTILES_SOURCE ||
             id.startsWith('overlay-') ||
             id === HIGHLIGHT_SOURCE ||
-            id === HEADING_SOURCE
+            id === HEADING_SOURCE ||
+            id === TRAVEL_SOURCE
         ) {
             customSources[id] = src as SourceSpecification;
         }
@@ -315,11 +343,14 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             l.id.startsWith('tracks-pmtiles-') ||
             l.id.startsWith('overlay-') ||
             l.id === HEADING_LAYER ||
+            l.id === TRAVEL_LAYER ||
             l.id === HIGHLIGHT_GLOW_LAYER ||
             l.id === HIGHLIGHT_LAYER,
     );
-    const customLayers = allCustom.filter(l => l.id !== HIGHLIGHT_GLOW_LAYER && l.id !== HIGHLIGHT_LAYER && l.id !== HEADING_LAYER);
+    const userLocationIds = new Set([HEADING_LAYER, TRAVEL_LAYER, HIGHLIGHT_GLOW_LAYER, HIGHLIGHT_LAYER]);
+    const customLayers = allCustom.filter(l => !userLocationIds.has(l.id));
     const headingLayer = allCustom.find(l => l.id === HEADING_LAYER);
+    const travelLayer  = allCustom.find(l => l.id === TRAVEL_LAYER);
     const highlightLayers = [HIGHLIGHT_GLOW_LAYER, HIGHLIGHT_LAYER]
         .map(id => allCustom.find(l => l.id === id))
         .filter((l): l is (typeof allCustom)[number] => l !== undefined);
@@ -330,6 +361,7 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             ...next.layers,
             ...customLayers,
             ...(headingLayer ? [headingLayer] : []),
+            ...(travelLayer  ? [travelLayer]  : []),
             ...highlightLayers,
         ],
     };
@@ -456,6 +488,7 @@ export function MapView({
         // Track user position and device heading to drive the heading cone
         let userPos: { lng: number; lat: number } | null = null;
         let deviceHeading: number | null = null;
+        let travelHeading: number | null = null;
 
         const updateHeadingCone = () => {
             const src = map.getSource(HEADING_SOURCE) as maplibregl.GeoJSONSource | undefined;
@@ -463,31 +496,57 @@ export function MapView({
             if (userPos === null || deviceHeading === null) {
                 src.setData({ type: 'FeatureCollection', features: [] });
             } else {
-                src.setData(buildHeadingCone(userPos.lng, userPos.lat, deviceHeading));
+                src.setData(buildHeadingCone(userPos.lng, userPos.lat, deviceHeading, map.getZoom()));
+            }
+        };
+
+        const updateTravelTriangle = () => {
+            const src = map.getSource(TRAVEL_SOURCE) as maplibregl.GeoJSONSource | undefined;
+            if (!src) return;
+            if (userPos === null || travelHeading === null) {
+                src.setData({ type: 'FeatureCollection', features: [] });
+            } else {
+                src.setData(buildTravelTriangle(userPos.lng, userPos.lat, travelHeading, map.getZoom()));
             }
         };
 
         geolocate.on('geolocate', (e: GeolocationPosition) => {
             userPos = { lng: e.coords.longitude, lat: e.coords.latitude };
+            // coords.heading is null when stationary; only use it above a meaningful speed
+            const speed = e.coords.speed ?? 0;
+            travelHeading = (e.coords.heading !== null && speed > 1.0) ? e.coords.heading : null;
             updateHeadingCone();
+            updateTravelTriangle();
         });
         geolocate.on('trackuserlocationend', () => {
             userPos = null;
+            travelHeading = null;
             updateHeadingCone();
+            updateTravelTriangle();
         });
 
-        const handleOrientation = (e: DeviceOrientationEvent) => {
-            // webkitCompassHeading: iOS compass bearing (0=north, clockwise)
-            // alpha from deviceorientationabsolute: 0=north, counter-clockwise → convert to clockwise
-            const heading =
-                (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading
-                ?? (e.alpha !== null ? (360 - e.alpha) % 360 : null);
-            if (heading === null) return;
-            deviceHeading = heading;
+        // Absolute events (Android/Chrome) are compass-referenced; once one arrives, ignore
+        // the relative deviceorientation events which have an arbitrary zero point.
+        let hasAbsolute = false;
+
+        const handleAbsoluteOrientation = (e: DeviceOrientationEvent) => {
+            if (e.alpha === null) return;
+            hasAbsolute = true;
+            deviceHeading = (360 - e.alpha) % 360;
             updateHeadingCone();
         };
-        window.addEventListener('deviceorientationabsolute', handleOrientation as EventListener);
-        window.addEventListener('deviceorientation', handleOrientation as EventListener);
+
+        const handleRelativeOrientation = (e: DeviceOrientationEvent) => {
+            if (hasAbsolute) return;
+            // webkitCompassHeading is iOS's compass bearing (0=north, clockwise) — reliable
+            const iosHeading = (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading;
+            if (iosHeading == null) return; // non-iOS relative alpha is not compass-referenced
+            deviceHeading = iosHeading;
+            updateHeadingCone();
+        };
+
+        window.addEventListener('deviceorientationabsolute', handleAbsoluteOrientation as EventListener);
+        window.addEventListener('deviceorientation', handleRelativeOrientation as EventListener);
 
         mapRef.current = map;
         loadedSourceIdRef.current = source.id;
@@ -503,6 +562,8 @@ export function MapView({
                 north: b.getNorth(),
             });
         });
+
+        map.on('zoom', () => { updateHeadingCone(); updateTravelTriangle(); });
 
         map.on('error', e => {
             // Only surface errors before the first style.load — after that, errors are mostly
@@ -545,6 +606,12 @@ export function MapView({
                     data: { type: 'FeatureCollection', features: [] },
                 });
             }
+            if (!map.getSource(TRAVEL_SOURCE)) {
+                map.addSource(TRAVEL_SOURCE, {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+            }
             const b = map.getBounds();
             onBoundsChangeRef.current({
                 west: b.getWest(),
@@ -568,8 +635,8 @@ export function MapView({
         });
 
         return () => {
-            window.removeEventListener('deviceorientationabsolute', handleOrientation as EventListener);
-            window.removeEventListener('deviceorientation', handleOrientation as EventListener);
+            window.removeEventListener('deviceorientationabsolute', handleAbsoluteOrientation as EventListener);
+            window.removeEventListener('deviceorientation', handleRelativeOrientation as EventListener);
             map.remove();
             mapRef.current = null;
             loadedSourceIdRef.current = null;
@@ -944,19 +1011,24 @@ export function MapView({
         }
     }, [hiddenCategories, hiddenTrackTypes, categories, mapVersion]);
 
-    // Heading cone layer — semi-transparent fill rendered above tracks, below highlight.
+    // Heading cone + travel triangle layers — rendered above tracks, below highlight.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || mapVersion === 0 || !map.getSource(HEADING_SOURCE)) return;
-        if (!map.getLayer(HEADING_LAYER)) {
+        if (!map || mapVersion === 0) return;
+        if (!map.getLayer(HEADING_LAYER) && map.getSource(HEADING_SOURCE)) {
             map.addLayer({
                 id: HEADING_LAYER,
                 type: 'fill',
                 source: HEADING_SOURCE,
-                paint: {
-                    'fill-color': '#4285f4',
-                    'fill-opacity': 0.25,
-                },
+                paint: { 'fill-color': '#4285f4', 'fill-opacity': 0.25 },
+            });
+        }
+        if (!map.getLayer(TRAVEL_LAYER) && map.getSource(TRAVEL_SOURCE)) {
+            map.addLayer({
+                id: TRAVEL_LAYER,
+                type: 'fill',
+                source: TRAVEL_SOURCE,
+                paint: { 'fill-color': '#1a73e8', 'fill-opacity': 0.9 },
             });
         }
     }, [mapVersion]);
