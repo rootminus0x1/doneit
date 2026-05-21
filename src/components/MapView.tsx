@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl, { type StyleSpecification, type SourceSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { Compass } from 'maplibre-compass-pro';
+import 'maplibre-compass-pro/dist/style.css';
 import '../lib/drivepmtiles'; // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig';
 import { buildRasterStyle } from '../lib/tileConfig';
@@ -116,8 +118,6 @@ interface Props {
     onFeatureHover: (data: PopupData | null) => void;
     baggedSet: Set<string>;
     onPeakHoverEnd?: () => void;
-    onBearingChange?: (bearing: number) => void;
-    northTrigger?: number;
     onError: (message: string) => void;
     onStyleLoad?: (sourceId: string) => void;
     onStyleFail?: (message: string) => void;
@@ -141,6 +141,25 @@ const HIGHLIGHT_SOURCE = 'highlight-line';
 const HIGHLIGHT_GLOW_LAYER = 'highlight-line-glow';
 const HIGHLIGHT_LAYER = 'highlight-line';
 export const HIGHLIGHT_COLOR = '#06b6d4';
+
+const HEADING_SOURCE = 'user-heading-cone';
+const HEADING_LAYER = 'user-heading-cone-fill';
+
+function buildHeadingCone(lng: number, lat: number, headingDeg: number): GeoJSON.FeatureCollection {
+    const toRad = Math.PI / 180;
+    const radiusM = 80;
+    const halfWidthDeg = 30;
+    const steps = 24;
+    const coords: [number, number][] = [[lng, lat]];
+    for (let i = 0; i <= steps; i++) {
+        const bearing = (headingDeg - halfWidthDeg + (2 * halfWidthDeg * i / steps)) * toRad;
+        const dLat = (radiusM / 111320) * Math.cos(bearing);
+        const dLng = (radiusM / (111320 * Math.cos(lat * toRad))) * Math.sin(bearing);
+        coords.push([lng + dLng, lat + dLat]);
+    }
+    coords.push([lng, lat]);
+    return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} }] };
+}
 
 // True on touch-only devices (phones/tablets with no mouse hover support).
 // Used to skip mouseenter/mouseleave handlers that are meaningless on touch.
@@ -283,7 +302,8 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             id === PMTILES_SOURCE ||
             id === PEAKS_PMTILES_SOURCE ||
             id.startsWith('overlay-') ||
-            id === HIGHLIGHT_SOURCE
+            id === HIGHLIGHT_SOURCE ||
+            id === HEADING_SOURCE
         ) {
             customSources[id] = src as SourceSpecification;
         }
@@ -294,17 +314,24 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             l.id.startsWith('peaks-') ||
             l.id.startsWith('tracks-pmtiles-') ||
             l.id.startsWith('overlay-') ||
+            l.id === HEADING_LAYER ||
             l.id === HIGHLIGHT_GLOW_LAYER ||
             l.id === HIGHLIGHT_LAYER,
     );
-    const customLayers = allCustom.filter(l => l.id !== HIGHLIGHT_GLOW_LAYER && l.id !== HIGHLIGHT_LAYER);
+    const customLayers = allCustom.filter(l => l.id !== HIGHLIGHT_GLOW_LAYER && l.id !== HIGHLIGHT_LAYER && l.id !== HEADING_LAYER);
+    const headingLayer = allCustom.find(l => l.id === HEADING_LAYER);
     const highlightLayers = [HIGHLIGHT_GLOW_LAYER, HIGHLIGHT_LAYER]
         .map(id => allCustom.find(l => l.id === id))
         .filter((l): l is (typeof allCustom)[number] => l !== undefined);
     return {
         ...next,
         sources: { ...next.sources, ...customSources },
-        layers: [...next.layers, ...customLayers, ...highlightLayers],
+        layers: [
+            ...next.layers,
+            ...customLayers,
+            ...(headingLayer ? [headingLayer] : []),
+            ...highlightLayers,
+        ],
     };
 }
 
@@ -350,8 +377,6 @@ export function MapView({
     onMove,
     onFeatureClick,
     onFeatureHover,
-    onBearingChange,
-    northTrigger,
     onError,
     onStyleLoad,
     onStyleFail,
@@ -371,7 +396,6 @@ export function MapView({
     const onMoveRef = useRef(onMove);
     const onFeatureClickRef = useRef(onFeatureClick);
     const onFeatureHoverRef = useRef(onFeatureHover);
-    const onBearingChangeRef = useRef(onBearingChange);
     const onErrorRef = useRef(onError);
     const onStyleLoadRef = useRef(onStyleLoad);
     const onStyleFailRef = useRef(onStyleFail);
@@ -386,9 +410,6 @@ export function MapView({
     });
     useEffect(() => {
         onFeatureHoverRef.current = onFeatureHover;
-    });
-    useEffect(() => {
-        onBearingChangeRef.current = onBearingChange;
     });
     useEffect(() => {
         onErrorRef.current = onError;
@@ -427,9 +448,46 @@ export function MapView({
             fitBoundsOptions: { maxZoom: 16, animate: true },
         });
         map.addControl(geolocate, 'bottom-right');
+        map.addControl(new Compass({ size: 'sm' }), 'top-right');
         geolocate.on('error', e => {
             onErrorRef.current((e as GeolocationPositionError).message ?? 'Geolocation error');
         });
+
+        // Track user position and device heading to drive the heading cone
+        let userPos: { lng: number; lat: number } | null = null;
+        let deviceHeading: number | null = null;
+
+        const updateHeadingCone = () => {
+            const src = map.getSource(HEADING_SOURCE) as maplibregl.GeoJSONSource | undefined;
+            if (!src) return;
+            if (userPos === null || deviceHeading === null) {
+                src.setData({ type: 'FeatureCollection', features: [] });
+            } else {
+                src.setData(buildHeadingCone(userPos.lng, userPos.lat, deviceHeading));
+            }
+        };
+
+        geolocate.on('geolocate', (e: GeolocationPosition) => {
+            userPos = { lng: e.coords.longitude, lat: e.coords.latitude };
+            updateHeadingCone();
+        });
+        geolocate.on('trackuserlocationend', () => {
+            userPos = null;
+            updateHeadingCone();
+        });
+
+        const handleOrientation = (e: DeviceOrientationEvent) => {
+            // webkitCompassHeading: iOS compass bearing (0=north, clockwise)
+            // alpha from deviceorientationabsolute: 0=north, counter-clockwise → convert to clockwise
+            const heading =
+                (e as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading
+                ?? (e.alpha !== null ? (360 - e.alpha) % 360 : null);
+            if (heading === null) return;
+            deviceHeading = heading;
+            updateHeadingCone();
+        };
+        window.addEventListener('deviceorientationabsolute', handleOrientation as EventListener);
+        window.addEventListener('deviceorientation', handleOrientation as EventListener);
 
         mapRef.current = map;
         loadedSourceIdRef.current = source.id;
@@ -444,10 +502,6 @@ export function MapView({
                 south: b.getSouth(),
                 north: b.getNorth(),
             });
-        });
-
-        map.on('rotate', () => {
-            onBearingChangeRef.current?.(map.getBearing());
         });
 
         map.on('error', e => {
@@ -478,9 +532,15 @@ export function MapView({
         map.on('style.load', () => {
             styleLoadedRef.current = true;
             onStyleLoadRef.current?.(loadedSourceIdRef.current!);
-            // preserveCustomLayers copies the highlight source on style switches; add it on first load
+            // preserveCustomLayers copies these sources on style switches; add them on first load
             if (!map.getSource(HIGHLIGHT_SOURCE)) {
                 map.addSource(HIGHLIGHT_SOURCE, {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+            }
+            if (!map.getSource(HEADING_SOURCE)) {
+                map.addSource(HEADING_SOURCE, {
                     type: 'geojson',
                     data: { type: 'FeatureCollection', features: [] },
                 });
@@ -508,17 +568,13 @@ export function MapView({
         });
 
         return () => {
+            window.removeEventListener('deviceorientationabsolute', handleOrientation as EventListener);
+            window.removeEventListener('deviceorientation', handleOrientation as EventListener);
             map.remove();
             mapRef.current = null;
             loadedSourceIdRef.current = null;
         };
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Reset north when northTrigger increments
-    useEffect(() => {
-        if (!northTrigger) return;
-        mapRef.current?.resetNorth({ animate: true });
-    }, [northTrigger]);
 
     // When the source prop changes, update the style in place — no remount.
     // For vector sources, fetch and validate the style URL before calling setStyle so a
@@ -887,6 +943,23 @@ export function MapView({
             );
         }
     }, [hiddenCategories, hiddenTrackTypes, categories, mapVersion]);
+
+    // Heading cone layer — semi-transparent fill rendered above tracks, below highlight.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0 || !map.getSource(HEADING_SOURCE)) return;
+        if (!map.getLayer(HEADING_LAYER)) {
+            map.addLayer({
+                id: HEADING_LAYER,
+                type: 'fill',
+                source: HEADING_SOURCE,
+                paint: {
+                    'fill-color': '#4285f4',
+                    'fill-opacity': 0.25,
+                },
+            });
+        }
+    }, [mapVersion]);
 
     // Two-layer highlight: soft white glow (outer) + crisp cyan line (inner), both topmost.
     // Shown on hover and click for line features. preserveCustomLayers keeps them across style switches.

@@ -3275,6 +3275,7 @@ __metadata:
     eslint-plugin-react-refresh: "npm:^0.5.2"
     globals: "npm:^17.5.0"
     jsdom: "npm:^26.0.0"
+    maplibre-compass-pro: "npm:^0.6.0"
     maplibre-gl: "npm:^5.24.0"
     mime-types: "npm:^3.0.2"
     pmtiles: "npm:^4.4.1"
@@ -4955,6 +4956,15 @@ __metadata:
   dependencies:
     semver: "npm:^7.5.3"
   checksum: 10/bf0731a2dd3aab4db6f3de1585cea0b746bb73eb5a02e3d8d72757e376e64e6ada190b1eddcde5b2f24a81b688a9897efd5018737d05e02e2a671dda9cff8a8a
+  languageName: node
+  linkType: hard
+
+"maplibre-compass-pro@npm:^0.6.0":
+  version: 0.6.0
+  resolution: "maplibre-compass-pro@npm:0.6.0"
+  peerDependencies:
+    maplibre-gl: ">3.0.0"
+  checksum: 10/ff889b62d6bcf3417f7a6f2caf3cdde1c4155aa045d9e9847719c7e3b5610b49946afa1c6d94159f76fbefd365b7f355654075552c39c45def88d53db1edbcdb
   languageName: node
   linkType: hard
 

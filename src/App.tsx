@@ -6,7 +6,6 @@ import { useTileSource } from './hooks/useTileSource';
 import { useUnindexedTracks } from './hooks/useViewportTracks';
 import { MapView, HIGHLIGHT_COLOR } from './components/MapView';
 import type { PopupData } from './components/MapView';
-import { MapControls } from './components/MapControls';
 import { MapStyleSelector } from './components/MapStyleSelector';
 import { Sidebar } from './components/Sidebar';
 import { registerDrivePMTiles, upgradeToLocalPMTiles } from './lib/drivepmtiles';
@@ -146,8 +145,6 @@ export default function App() {
     useErrorToast(loadError);
     useErrorToast(mapError);
     useErrorToast(syncState.error);
-    const [bearing, setBearing] = useState(0);
-    const [northTrigger, setNorthTrigger] = useState(0);
     const lastGoodSourceIdRef = useRef<string | null>(null);
     const [hoveredFeature, setHoveredFeature] = useState<PopupData | null>(null);
     const [clickedFeature, setClickedFeature] = useState<PopupData | null>(null);
@@ -312,8 +309,6 @@ export default function App() {
                     onBoundsChange={() => {}}
                     onFeatureClick={handleFeatureClick}
                     onFeatureHover={handleFeatureHover}
-                    onBearingChange={setBearing}
-                    northTrigger={northTrigger}
                     onError={msg => setMapError(msg)}
                     onStyleLoad={handleStyleLoad}
                     onStyleFail={handleStyleFail}
@@ -369,8 +364,6 @@ export default function App() {
             <div style={styles.coordDisplay}>
                 {formatCoord(mapCenter[1], mapCenter[0])}
             </div>
-
-            <MapControls bearing={bearing} onResetNorth={() => setNorthTrigger(n => n + 1)} />
 
             <Sidebar
                 open={sidebarOpen}
@@ -517,7 +510,7 @@ const styles: Record<string, React.CSSProperties> = {
         cursor: 'pointer',
         fontSize: 20,
     },
-    authArea: { position: 'absolute', top: 12, right: 12, zIndex: 10 },
+    authArea: { position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 10 },
     authBtn: {
         padding: '8px 16px',
         borderRadius: 20,
