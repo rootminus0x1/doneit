@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import maplibregl, { type StyleSpecification, type SourceSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Compass } from 'maplibre-compass-pro';
 import 'maplibre-compass-pro/dist/style.css';
+import { Compass } from 'maplibre-compass-pro';
 import '../lib/drivepmtiles'; // registers pmtiles:// protocol with MapLibre
 import type { TileSource } from '../lib/tileConfig';
 import { buildRasterStyle } from '../lib/tileConfig';
@@ -142,10 +142,12 @@ const HIGHLIGHT_GLOW_LAYER = 'highlight-line-glow';
 const HIGHLIGHT_LAYER = 'highlight-line';
 export const HIGHLIGHT_COLOR = '#06b6d4';
 
-const HEADING_SOURCE = 'user-heading-cone';
-const HEADING_LAYER = 'user-heading-cone-fill';
-const TRAVEL_SOURCE = 'user-travel-direction';
-const TRAVEL_LAYER = 'user-travel-direction-fill';
+const HEADING_SOURCE    = 'user-heading-cone';
+const HEADING_LAYER     = 'user-heading-cone-fill';
+const HEADING_EDGE_LAYER = 'user-heading-cone-edge';
+const TRAVEL_SOURCE     = 'user-travel-direction';
+const TRAVEL_FILL_LAYER = 'user-travel-direction-fill';
+const TRAVEL_LINE_LAYER = 'user-travel-direction-shaft';
 
 // At zoom z with 512px tiles, one pixel = this many metres at the given latitude.
 function metersPerPixel(zoom: number, lat: number): number {
@@ -157,35 +159,54 @@ function offsetGeo(lng: number, lat: number, eM: number, nM: number): [number, n
     return [lng + eM / (111320 * Math.cos(lat * Math.PI / 180)), lat + nM / 111320];
 }
 
-function buildHeadingCone(lng: number, lat: number, headingDeg: number, zoom: number): GeoJSON.FeatureCollection {
+// Cone fill (Polygon) + two radial edges (MultiLineString) in one FeatureCollection.
+function buildHeadingFeatures(lng: number, lat: number, headingDeg: number, zoom: number): GeoJSON.FeatureCollection {
     const toRad = Math.PI / 180;
-    const radiusM = 50 * metersPerPixel(zoom, lat); // 50 px regardless of zoom
-    const halfWidthDeg = 20; // 40° total arc
+    const radiusM = 35 * metersPerPixel(zoom, lat); // 35 px
+    const halfWidthDeg = 20;
     const steps = 24;
-    const coords: [number, number][] = [[lng, lat]];
-    for (let i = 0; i <= steps; i++) {
-        const bearing = (headingDeg - halfWidthDeg + (2 * halfWidthDeg * i / steps)) * toRad;
-        const dLat = (radiusM / 111320) * Math.cos(bearing);
-        const dLng = (radiusM / (111320 * Math.cos(lat * toRad))) * Math.sin(bearing);
-        coords.push([lng + dLng, lat + dLat]);
-    }
-    coords.push([lng, lat]);
-    return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} }] };
+    const center: [number, number] = [lng, lat];
+    const arcPt = (deg: number): [number, number] => {
+        const b = deg * toRad;
+        return [lng + (radiusM / (111320 * Math.cos(lat * toRad))) * Math.sin(b),
+                lat + (radiusM / 111320) * Math.cos(b)];
+    };
+    const coords: [number, number][] = [center];
+    for (let i = 0; i <= steps; i++)
+        coords.push(arcPt(headingDeg - halfWidthDeg + 2 * halfWidthDeg * i / steps));
+    coords.push(center);
+    return {
+        type: 'FeatureCollection',
+        features: [
+            { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} },
+            { type: 'Feature', geometry: { type: 'MultiLineString', coordinates: [
+                [center, arcPt(headingDeg - halfWidthDeg)],
+                [center, arcPt(headingDeg + halfWidthDeg)],
+            ]}, properties: {} },
+        ],
+    };
 }
 
-// Small arrowhead triangle sitting at outerRadius px from the user, apex pointing in headingDeg.
-function buildTravelTriangle(lng: number, lat: number, headingDeg: number, zoom: number): GeoJSON.FeatureCollection {
+// Shaft (LineString) from 40px to 80px + arrowhead (Polygon) at 80px.
+function buildTravelFeatures(lng: number, lat: number, headingDeg: number, zoom: number): GeoJSON.FeatureCollection {
     const mpp = metersPerPixel(zoom, lat);
     const hr = headingDeg * Math.PI / 180;
     const fwdE = Math.sin(hr), fwdN = Math.cos(hr);
     const rgtE = Math.cos(hr), rgtN = -Math.sin(hr);
-    const outerR = 70 * mpp;  // sits outside the 50px compass cone
-    const halfH  =  6 * mpp;  // ±6px along heading axis
-    const halfW  =  5 * mpp;  // ±5px perpendicular
-    const apex = offsetGeo(lng, lat, (outerR + halfH) * fwdE,                       (outerR + halfH) * fwdN);
-    const bL   = offsetGeo(lng, lat, (outerR - halfH) * fwdE - halfW * rgtE,        (outerR - halfH) * fwdN - halfW * rgtN);
-    const bR   = offsetGeo(lng, lat, (outerR - halfH) * fwdE + halfW * rgtE,        (outerR - halfH) * fwdN + halfW * rgtN);
-    return { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[bL, apex, bR, bL]] }, properties: {} }] };
+    const p = (fwd: number, rgt = 0): [number, number] =>
+        offsetGeo(lng, lat, mpp * (fwd * fwdE + rgt * rgtE), mpp * (fwd * fwdN + rgt * rgtN));
+    const shaftStart = p(0);
+    const shaftEnd   = p(40);
+    const apex = p(52);
+    const bL   = p(40, -7);
+    const bR   = p(40,  7);
+    return {
+        type: 'FeatureCollection',
+        features: [
+            { type: 'Feature', geometry: { type: 'LineString', coordinates: [shaftStart, shaftEnd] }, properties: {} },
+            { type: 'Feature', geometry: { type: 'Polygon',    coordinates: [[bL, apex, bR, bL]] }, properties: {} },
+        ],
+    };
 }
 
 // True on touch-only devices (phones/tablets with no mouse hover support).
@@ -343,27 +364,23 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             l.id.startsWith('tracks-pmtiles-') ||
             l.id.startsWith('overlay-') ||
             l.id === HEADING_LAYER ||
-            l.id === TRAVEL_LAYER ||
+            l.id === HEADING_EDGE_LAYER ||
+            l.id === TRAVEL_FILL_LAYER ||
+            l.id === TRAVEL_LINE_LAYER ||
             l.id === HIGHLIGHT_GLOW_LAYER ||
             l.id === HIGHLIGHT_LAYER,
     );
-    const userLocationIds = new Set([HEADING_LAYER, TRAVEL_LAYER, HIGHLIGHT_GLOW_LAYER, HIGHLIGHT_LAYER]);
+    const userLocationIds = new Set([HEADING_LAYER, HEADING_EDGE_LAYER, TRAVEL_FILL_LAYER, TRAVEL_LINE_LAYER, HIGHLIGHT_GLOW_LAYER, HIGHLIGHT_LAYER]);
     const customLayers = allCustom.filter(l => !userLocationIds.has(l.id));
-    const headingLayer = allCustom.find(l => l.id === HEADING_LAYER);
-    const travelLayer  = allCustom.find(l => l.id === TRAVEL_LAYER);
+    const locationLayers = [HEADING_LAYER, HEADING_EDGE_LAYER, TRAVEL_FILL_LAYER, TRAVEL_LINE_LAYER]
+        .flatMap(id => { const l = allCustom.find(x => x.id === id); return l ? [l] : []; });
     const highlightLayers = [HIGHLIGHT_GLOW_LAYER, HIGHLIGHT_LAYER]
         .map(id => allCustom.find(l => l.id === id))
         .filter((l): l is (typeof allCustom)[number] => l !== undefined);
     return {
         ...next,
         sources: { ...next.sources, ...customSources },
-        layers: [
-            ...next.layers,
-            ...customLayers,
-            ...(headingLayer ? [headingLayer] : []),
-            ...(travelLayer  ? [travelLayer]  : []),
-            ...highlightLayers,
-        ],
+        layers: [...next.layers, ...customLayers, ...locationLayers, ...highlightLayers],
     };
 }
 
@@ -480,7 +497,7 @@ export function MapView({
             fitBoundsOptions: { maxZoom: 16, animate: true },
         });
         map.addControl(geolocate, 'bottom-right');
-        map.addControl(new Compass({ size: 'sm' }), 'top-right');
+        map.addControl(new Compass({ size: 'xs', visualizePitch: true, displayDirection: true }), 'top-right');
         geolocate.on('error', e => {
             onErrorRef.current((e as GeolocationPositionError).message ?? 'Geolocation error');
         });
@@ -496,7 +513,7 @@ export function MapView({
             if (userPos === null || deviceHeading === null) {
                 src.setData({ type: 'FeatureCollection', features: [] });
             } else {
-                src.setData(buildHeadingCone(userPos.lng, userPos.lat, deviceHeading, map.getZoom()));
+                src.setData(buildHeadingFeatures(userPos.lng, userPos.lat, deviceHeading, map.getZoom()));
             }
         };
 
@@ -506,7 +523,7 @@ export function MapView({
             if (userPos === null || travelHeading === null) {
                 src.setData({ type: 'FeatureCollection', features: [] });
             } else {
-                src.setData(buildTravelTriangle(userPos.lng, userPos.lat, travelHeading, map.getZoom()));
+                src.setData(buildTravelFeatures(userPos.lng, userPos.lat, travelHeading, map.getZoom()));
             }
         };
 
@@ -514,7 +531,7 @@ export function MapView({
             userPos = { lng: e.coords.longitude, lat: e.coords.latitude };
             // coords.heading is null when stationary; only use it above a meaningful speed
             const speed = e.coords.speed ?? 0;
-            travelHeading = (e.coords.heading !== null && speed > 1.0) ? e.coords.heading : null;
+            travelHeading = (e.coords.heading !== null && speed > 0.75) ? e.coords.heading : null;
             updateHeadingCone();
             updateTravelTriangle();
         });
@@ -1017,17 +1034,29 @@ export function MapView({
         if (!map || mapVersion === 0) return;
         if (!map.getLayer(HEADING_LAYER) && map.getSource(HEADING_SOURCE)) {
             map.addLayer({
-                id: HEADING_LAYER,
-                type: 'fill',
-                source: HEADING_SOURCE,
+                id: HEADING_LAYER, type: 'fill', source: HEADING_SOURCE,
+                filter: ['==', ['geometry-type'], 'Polygon'],
                 paint: { 'fill-color': '#4285f4', 'fill-opacity': 0.25 },
             });
         }
-        if (!map.getLayer(TRAVEL_LAYER) && map.getSource(TRAVEL_SOURCE)) {
+        if (!map.getLayer(HEADING_EDGE_LAYER) && map.getSource(HEADING_SOURCE)) {
             map.addLayer({
-                id: TRAVEL_LAYER,
-                type: 'fill',
-                source: TRAVEL_SOURCE,
+                id: HEADING_EDGE_LAYER, type: 'line', source: HEADING_SOURCE,
+                filter: ['==', ['geometry-type'], 'MultiLineString'],
+                paint: { 'line-color': '#4285f4', 'line-opacity': 0.5, 'line-width': 1.5 },
+            });
+        }
+        if (!map.getLayer(TRAVEL_LINE_LAYER) && map.getSource(TRAVEL_SOURCE)) {
+            map.addLayer({
+                id: TRAVEL_LINE_LAYER, type: 'line', source: TRAVEL_SOURCE,
+                filter: ['==', ['geometry-type'], 'LineString'],
+                paint: { 'line-color': '#1a73e8', 'line-opacity': 0.9, 'line-width': 2 },
+            });
+        }
+        if (!map.getLayer(TRAVEL_FILL_LAYER) && map.getSource(TRAVEL_SOURCE)) {
+            map.addLayer({
+                id: TRAVEL_FILL_LAYER, type: 'fill', source: TRAVEL_SOURCE,
+                filter: ['==', ['geometry-type'], 'Polygon'],
                 paint: { 'fill-color': '#1a73e8', 'fill-opacity': 0.9 },
             });
         }
