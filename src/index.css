@@ -5,7 +5,7 @@
 }
 
 /* compass is hard up against the edge of the map display */
-.maplibregl-ctrl-top-right {
+.maplibregl-map .maplibregl-ctrl-top-right {
   top: 10px !important;
   right: 10px !important;
 }
