@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, isReady } from '../lib/dataApi';
 import { DriveAuthError } from '../lib/driveApi'; // used only to suppress error display (reconnect banner handles it)
-import { parsePeaksGpx, filenameToCategoryLabel } from '../lib/gpxParser';
+import { parsePeaksGpx, parseRouteFile, filenameToCategoryLabel } from '../lib/gpxParser';
 import type { TrackIndex } from '../lib/spatialIndex';
-import type { ParsedPeaks } from '../lib/gpxParser';
+import type { ParsedPeaks, LoadedRoute } from '../lib/gpxParser';
 
 export interface TrackCategory {
     id: string;
@@ -49,6 +49,8 @@ export interface PeakCategoryDisplay {
     shape?: PeakShape;
 }
 
+export type { LoadedRoute };
+
 export interface DriveDataState {
     ready: boolean;
     error: string | null;
@@ -63,6 +65,7 @@ export interface DriveDataState {
     baggedTracks: BaggedTrack[];
     baggedSet: Set<string>;
     unindexedFiles: UnindexedFile[];
+    loadedRoutes: LoadedRoute[];
 }
 
 interface TrackDisplayConfig {
@@ -87,6 +90,7 @@ export function useDriveData(token: string | null): DriveDataState {
     const [peaksPmtilesFileId, setPeaksPmtilesFileId] = useState<string | null>(null);
     const [baggedTracks, setBaggedTracks] = useState<BaggedTrack[]>([]);
     const [unindexedFiles, setUnindexedFiles] = useState<UnindexedFile[]>([]);
+    const [loadedRoutes, setLoadedRoutes] = useState<LoadedRoute[]>([]);
 
     const init = useCallback(async (tok: string | null) => {
         setReady(false);
@@ -167,8 +171,26 @@ export function useDriveData(token: string | null): DriveDataState {
             }
             setUnindexedFiles(unindexed);
 
-            // Peaks
+            // Routes — live from Drive as GeoJSON (DoneIt/routes/*.{gpx,kml,geojson,json})
             const rootFolders = await api.listFolders(tok, rootId);
+            const routesFolder = rootFolders.find(f => f.name === 'routes');
+            if (routesFolder) {
+                const ROUTE_EXTS = new Set(['.gpx', '.kml', '.geojson', '.json']);
+                const routeFiles = await api.listFiles(tok, routesFolder.id);
+                const eligible = routeFiles.filter(f => ROUTE_EXTS.has('.' + f.name.split('.').pop()!.toLowerCase()));
+                const routes: LoadedRoute[] = [];
+                for (const f of eligible) {
+                    try {
+                        const text = await api.readFileText(tok, f.id);
+                        routes.push(parseRouteFile(text, f.name, f.id));
+                    } catch (e) {
+                        console.warn(`Skipping route ${f.name}: ${e instanceof Error ? e.message : e}`);
+                    }
+                }
+                setLoadedRoutes(routes);
+            }
+
+            // Peaks
             const peaksFolder = rootFolders.find(f => f.name === 'peaks');
             if (peaksFolder) {
                 const gpxNameToCategory = (filename: string) => filename.replace(/\.gpx$/i, '').toLowerCase();
@@ -275,6 +297,7 @@ export function useDriveData(token: string | null): DriveDataState {
             setPeaksPmtilesFileId(null);
             setBaggedTracks([]);
             setUnindexedFiles([]);
+            setLoadedRoutes([]);
             return;
         }
         init(token);
@@ -298,5 +321,6 @@ export function useDriveData(token: string | null): DriveDataState {
         baggedTracks,
         baggedSet,
         unindexedFiles,
+        loadedRoutes,
     };
 }

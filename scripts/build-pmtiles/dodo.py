@@ -51,7 +51,7 @@ DOIT_CONFIG = {
     "verbosity": 2,
     "reporter": _PhaseReporter,
     "dep_file": str(pipeline.BUILD_DIR / ".doit.db"),
-    "default_tasks": ["build_row_pmtiles", "build_tracks", "build_peaks_pmtiles"],
+    "default_tasks": ["build_row_pmtiles", "build_tracks", "build_peaks_pmtiles", "build_overlays"],
 }
 
 # ---------------------------------------------------------------------------
@@ -62,11 +62,13 @@ _FOLDER = os.environ.get("DONEIT_FOLDER", pipeline.DRIVE_FOLDER)
 # ---------------------------------------------------------------------------
 # Local output paths — defined in pipeline.py alongside the source paths
 # ---------------------------------------------------------------------------
-_local_tracks_pmtiles = pipeline.TRACKS_PMTILES_PATH
-_local_tracks_index   = pipeline.TRACKS_INDEX_PATH
-_local_peaks_pmtiles  = pipeline.PEAKS_PMTILES_PATH
-_local_peaks_index    = pipeline.PEAKS_INDEX_PATH
-_local_tile_sources   = pipeline.TILE_SOURCES_PATH
+_local_tracks_pmtiles   = pipeline.TRACKS_PMTILES_PATH
+_local_tracks_index     = pipeline.TRACKS_INDEX_PATH
+_local_overlays_pmtiles = pipeline.OVERLAYS_PMTILES_PATH
+_local_overlays_index   = pipeline.OVERLAYS_INDEX_PATH
+_local_peaks_pmtiles    = pipeline.PEAKS_PMTILES_PATH
+_local_peaks_index      = pipeline.PEAKS_INDEX_PATH
+_local_tile_sources     = pipeline.TILE_SOURCES_PATH
 
 # ---------------------------------------------------------------------------
 # Drive path discovery (GVFS) — needed for reading input GPX files and deploy
@@ -95,17 +97,46 @@ with pipeline.phase("Locating Drive via GVFS"):
         for _name, _path in pipeline.list_by_name(_cat_path).items():
             if _name.lower().endswith(".gpx"):
                 _all_gpx.append((_cat, _name, _path))
-    pipeline.log(f"{len(_all_gpx)} GPX tracks, {len(_peaks_gpx)} peak file(s)")
 
-# Filename → Drive file ID — read from local index first, fall back to GVFS copy
+    # Collect all overlay files from DoneIt/overlays/{category}/ subfolders (optional folder)
+    _overlays_folder: Path | None = pipeline.find_folder_optional(_doneit, "overlays")
+    _all_overlays: list[tuple[str, str, Path]] = []
+    _OVERLAY_EXTENSIONS = frozenset({".gpx", ".kml", ".geojson", ".json"})
+
+    if _overlays_folder:
+        _overlays_names: dict[str, Path] = pipeline.list_by_name(_overlays_folder)
+        _overlay_category_folders: dict[str, Path] = {n: p for n, p in _overlays_names.items() if p.is_dir()}
+        for _cat, _cat_path in sorted(_overlay_category_folders.items()):
+            for _name, _path in pipeline.list_by_name(_cat_path).items():
+                if Path(_name).suffix.lower() in _OVERLAY_EXTENSIONS:
+                    _all_overlays.append((_cat, _name, _path))
+        # Overlay files directly in overlays/ (no subcategory) → category "default"
+        for _name, _path in _overlays_names.items():
+            if Path(_name).suffix.lower() in _OVERLAY_EXTENSIONS:
+                _all_overlays.append(("default", _name, _path))
+    _overlays_cache_path: Path = pipeline.OVERLAYS_CACHE_PATH
+
+    pipeline.log(f"{len(_all_gpx)} GPX tracks, {len(_peaks_gpx)} peak file(s), {len(_all_overlays)} overlay(s)")
+
+# Filename → Drive file ID — read from local index first, fall back to GVFS copy.
+# Errors are non-fatal: run_build_tracks falls back to get_drive_id(gvfs_path).
 _filename_to_file_id: dict[str, str] = {}
 _idx_source = _local_tracks_index if _local_tracks_index.exists() else _generated_names.get("tracks-index.json")
 if _idx_source:
     try:
         _idx = json.loads(Path(_idx_source).read_text())
         _filename_to_file_id = {e["filename"]: e["fileId"] for e in _idx.get("tracks", [])}
-    except Exception:
-        pass
+    except Exception as _e:
+        pipeline.log(f"Warning: could not read tracks-index.json for file ID lookup: {_e}")
+
+_overlay_filename_to_file_id: dict[str, str] = {}
+_oidx_source = _local_overlays_index if _local_overlays_index.exists() else _generated_names.get("overlays-index.json")
+if _oidx_source:
+    try:
+        _oidx = json.loads(Path(_oidx_source).read_text())
+        _overlay_filename_to_file_id = {e["filename"]: e["fileId"] for e in _oidx.get("overlays", [])}
+    except Exception as _e:
+        pipeline.log(f"Warning: could not read overlays-index.json for file ID lookup: {_e}")
 
 _gdf, _sindex = None, None
 
@@ -196,6 +227,58 @@ def task_build_tracks() -> dict[str, Any]:
     }
 
 
+def task_parse_overlays() -> dict[str, Any]:
+    """Parse new/changed overlay files into overlays-cache.json."""
+    if not _overlays_folder:
+        return {"actions": [], "uptodate": [True]}
+
+    overlay_paths = [str(p) for _, _, p in _all_overlays]
+
+    def action():
+        with pipeline.phase("parse_overlays"):
+            cache = pipeline.run_parse_overlays(_all_overlays, _overlays_cache_path)
+            pipeline.save_gpx_cache(_overlays_cache_path, cache)
+
+    return {
+        "file_dep": overlay_paths,
+        "uptodate": [config_changed({
+            "parse_fn": _fn_hash(
+                pipeline.parse_gpx_coords,
+                pipeline.parse_kml_coords,
+                pipeline.parse_geojson_coords,
+            ),
+            "required_keys": sorted(pipeline._REQUIRED_CACHE_ENTRY_KEYS),
+        })],
+        "targets": [str(_overlays_cache_path)],
+        "actions": [action],
+    }
+
+
+def task_build_overlays() -> dict[str, Any]:
+    """Build DoneIt/generated/overlays.pmtiles and overlays-index.json."""
+    if not _overlays_folder:
+        return {"actions": [], "uptodate": [True]}
+
+    def action():
+        with pipeline.phase("build_overlays"):
+            cache = pipeline.load_gpx_cache(_overlays_cache_path)
+            pipeline.run_build_overlays(
+                cache, _all_overlays, _overlay_filename_to_file_id,
+                _local_overlays_pmtiles, _local_overlays_index,
+            )
+
+    return {
+        "file_dep": [str(_overlays_cache_path)],
+        "uptodate": [config_changed({"build_fn": _fn_hash(
+            pipeline.build_overlay_features,
+            pipeline._smooth_elevation_by_distance,
+        )})],
+        "targets": [str(_local_overlays_pmtiles), str(_local_overlays_index)],
+        "actions": [action],
+        "task_dep": ["parse_overlays"],
+    }
+
+
 def task_build_peaks_pmtiles() -> dict[str, Any]:
     """Build DoneIt/peaks/peaks.pmtiles from peak GPX files and peaks-index.json."""
     if not _peaks_folder or not _peaks_gpx:
@@ -230,6 +313,11 @@ def task_deploy() -> dict[str, Any]:
         (_local_tracks_pmtiles,     _gen("tracks.pmtiles")),
         (_local_tracks_index,       _gen("tracks-index.json")),
     ]
+    if _overlays_folder:
+        pairs += [
+            (_local_overlays_pmtiles, _gen("overlays.pmtiles")),
+            (_local_overlays_index,   _gen("overlays-index.json")),
+        ]
     if _peaks_folder:
         pairs += [
             (_local_peaks_pmtiles, _gen("peaks.pmtiles")),
@@ -256,5 +344,5 @@ def task_deploy() -> dict[str, Any]:
         "uptodate": [_is_current],
         "targets": [str(_stamp)],
         "actions": [action],
-        "task_dep": ["build_row_pmtiles", "build_tracks", "build_peaks_pmtiles"],
+        "task_dep": ["build_row_pmtiles", "build_tracks", "build_peaks_pmtiles", "build_overlays"],
     }

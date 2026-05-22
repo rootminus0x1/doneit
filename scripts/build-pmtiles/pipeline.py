@@ -44,11 +44,14 @@ PEAKS_INDEX_NAME = "peaks-index.json"
 
 BUILD_DIR = Path(__file__).parent / "build"
 
-GPX_CACHE_PATH    = BUILD_DIR / "gpx-cache.json"
-ROW_GEOJSON_PATH  = BUILD_DIR / "row.geojson"
+GPX_CACHE_PATH        = BUILD_DIR / "gpx-cache.json"
+OVERLAYS_CACHE_PATH   = BUILD_DIR / "overlays-cache.json"
+ROW_GEOJSON_PATH      = BUILD_DIR / "row.geojson"
 ROW_PMTILES_PATH      = DONEIT_LOCAL / "generated" / "row.pmtiles"
 TRACKS_PMTILES_PATH   = DONEIT_LOCAL / "generated" / "tracks.pmtiles"
 TRACKS_INDEX_PATH     = DONEIT_LOCAL / "generated" / "tracks-index.json"
+OVERLAYS_PMTILES_PATH = DONEIT_LOCAL / "generated" / "overlays.pmtiles"
+OVERLAYS_INDEX_PATH   = DONEIT_LOCAL / "generated" / "overlays-index.json"
 PEAKS_PMTILES_PATH    = DONEIT_LOCAL / "generated" / "peaks.pmtiles"
 PEAKS_INDEX_PATH      = DONEIT_LOCAL / "generated" / PEAKS_INDEX_NAME
 TILE_SOURCES_PATH     = DONEIT_LOCAL / "config"    / "tile-sources.json"
@@ -298,8 +301,8 @@ def parse_gpx_coords(
         md = parsed.get_moving_data()
         if md:
             moving_s = md.moving_time
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  warning: could not compute moving time for {filename}: {e}", file=sys.stderr)
     return coords, duration_s, moving_s
 
 
@@ -324,6 +327,106 @@ def parse_gpx_waypoints(gpx_path: Path, filename: str) -> list[dict[str, Any]]:
         for wpt in parsed.waypoints
         if wpt.latitude is not None and wpt.longitude is not None
     ]
+
+
+def parse_kml_coords(kml_path: Path, filename: str) -> tuple[list[list[list[float]]], str | None]:
+    """Extract LineString tracks and document name from a KML file.
+
+    Returns (tracks, display_name). Uses stdlib xml.etree — no extra deps.
+    """
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(kml_path)
+        root = tree.getroot()
+    except ET.ParseError as e:
+        print(f"  skip {filename}: KML parse error: {e}", file=sys.stderr)
+        return [], None
+
+    # KML namespace varies between versions; detect from root tag
+    ns_prefix = ""
+    if root.tag.startswith("{"):
+        ns_prefix = root.tag.split("}")[0] + "}"
+
+    def find_name() -> str | None:
+        for tag in (f"{ns_prefix}name",):
+            el = root.find(f".//{ns_prefix}Document/{tag}") or root.find(f".//{tag}")
+            if el is not None and el.text and el.text.strip():
+                return el.text.strip()
+        return None
+
+    tracks: list[list[list[float]]] = []
+    for coord_el in root.findall(f".//{ns_prefix}LineString/{ns_prefix}coordinates"):
+        if not coord_el.text:
+            continue
+        coords: list[list[float]] = []
+        for token in coord_el.text.strip().split():
+            parts = token.split(",")
+            if len(parts) >= 2:
+                try:
+                    coords.append([float(parts[0]), float(parts[1]),
+                                   float(parts[2]) if len(parts) >= 3 else 0.0])
+                except ValueError:
+                    pass
+        if coords:
+            tracks.append(coords)
+
+    if not tracks:
+        print(f"  skip {filename}: no LineString features found", file=sys.stderr)
+
+    return tracks, find_name()
+
+
+def parse_geojson_coords(geojson_path: Path, filename: str) -> tuple[list[list[list[float]]], str | None]:
+    """Extract LineString tracks and name from a GeoJSON file.
+
+    Returns (tracks, display_name). Accepts FeatureCollection, Feature, LineString,
+    and MultiLineString at the top level.
+    """
+    try:
+        data: Any = json.loads(geojson_path.read_text(encoding="utf-8", errors="replace"))
+    except json.JSONDecodeError as e:
+        print(f"  skip {filename}: GeoJSON parse error: {e}", file=sys.stderr)
+        return [], None
+
+    display_name: str | None = None
+    tracks: list[list[list[float]]] = []
+
+    def _line_coords(coords_raw: list[Any]) -> list[list[float]]:
+        return [[c[0], c[1], c[2] if len(c) > 2 else 0.0] for c in coords_raw if len(c) >= 2]
+
+    def _extract(geom: dict[str, Any], props: dict[str, Any]) -> None:
+        nonlocal display_name
+        if not display_name:
+            for key in ("name", "Name", "title"):
+                v = props.get(key)
+                if v and isinstance(v, str):
+                    display_name = v
+                    break
+        t = geom.get("type")
+        if t == "LineString":
+            pts = _line_coords(geom.get("coordinates") or [])
+            if pts:
+                tracks.append(pts)
+        elif t == "MultiLineString":
+            for line in geom.get("coordinates") or []:
+                pts = _line_coords(line)
+                if pts:
+                    tracks.append(pts)
+
+    top = data.get("type")
+    if top == "FeatureCollection":
+        for feat in data.get("features") or []:
+            _extract(feat.get("geometry") or {}, feat.get("properties") or {})
+    elif top == "Feature":
+        _extract(data.get("geometry") or {}, data.get("properties") or {})
+    elif top in ("LineString", "MultiLineString"):
+        _extract(data, {})
+
+    if not tracks:
+        print(f"  skip {filename}: no LineString/MultiLineString features found", file=sys.stderr)
+
+    return tracks, display_name
 
 
 def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -793,6 +896,228 @@ def run_build_tracks(
 
 
 # ---------------------------------------------------------------------------
+# Build actions: parse and build pipeline overlays
+# Overlays live in DoneIt/overlays/{category}/*.{gpx,kml,geojson,json}.
+# Separate cache (overlays-cache.json) so overlay changes don't trigger a track rebuild.
+# ---------------------------------------------------------------------------
+
+def build_overlay_features(
+    entry: dict[str, Any],
+    category: str,
+    file_id: str | None,
+    filename: str,
+    unnamed_out: list[str],
+) -> list[dict[str, Any]]:
+    meta: dict[str, Any] = entry["meta"]
+    dt = meta.get("datetime")
+    date = dt[:10] if dt else None
+    display_name = meta.get("displayName")
+    if not display_name:
+        display_name = f"{date} · {category}" if date else Path(filename).stem
+        unnamed_out.append(f"  {category}/{filename}  →  \"{display_name}\"")
+    features = []
+    for coords in entry["tracks"]:
+        if not coords:
+            continue
+        props: dict[str, Any] = {
+            "category": category, "filename": filename, "file_id": file_id,
+            "display_name": display_name, "date": date,
+            "length_km": round(
+                sum(haversine_m(coords[i][1], coords[i][0], coords[i - 1][1], coords[i - 1][0])
+                    for i in range(1, len(coords))) / 1000, 2
+            ) if len(coords) > 1 else 0.0,
+        }
+        ascent = 0.0
+        if len(coords) > 1:
+            smoothed = _smooth_elevation_by_distance(coords, 200.0)
+            ref = smoothed[0]
+            for e in smoothed[1:]:
+                if e < ref:
+                    ref = e
+                elif e - ref >= 8.0:
+                    ascent += e - ref
+                    ref = e
+        props["ascent_m"] = round(ascent)
+        coords_2d = [[c[0], c[1]] for c in coords]
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": coords_2d},
+            "properties": props,
+        })
+    return features
+
+
+def run_parse_overlays(
+    all_overlays: list[tuple[str, str, Path]],
+    cache_path: Path,
+) -> dict[str, Any]:
+    """Parse new/changed overlay files (GPX, KML, GeoJSON), return updated cache."""
+    cache = load_gpx_cache(cache_path)
+
+    stale = [k for k, v in cache.items() if not _REQUIRED_CACHE_ENTRY_KEYS.issubset(v)]
+    if stale:
+        missing = sorted({f for k in stale for f in _REQUIRED_CACHE_ENTRY_KEYS if f not in cache[k]})
+        log(f"evicting {len(stale)} stale overlay cache entry/entries (missing field(s): {missing})")
+        for k in stale:
+            del cache[k]
+
+    to_parse: list[tuple[str, str, Path, str]] = []
+    md5_reads = 0
+    with phase(f"Checking {len(all_overlays)} overlay(s) for changes"):
+        for category, filename, gvfs_path in all_overlays:
+            key = f"{category}/{filename}"
+            entry = cache.get(key)
+            if entry and "mtime" in entry:
+                try:
+                    if gvfs_path.stat().st_mtime == entry["mtime"]:
+                        continue
+                except OSError:
+                    pass
+            md5_reads += 1
+            current_md5 = compute_file_md5(gvfs_path)
+            if entry is None or entry.get("md5") != current_md5:
+                to_parse.append((category, filename, gvfs_path, current_md5))
+            elif entry:
+                try:
+                    entry["mtime"] = gvfs_path.stat().st_mtime
+                except OSError:
+                    pass
+            if md5_reads % 10 == 0:
+                log(f"{md5_reads} MD5s read, {len(to_parse)} changed so far ...")
+    skipped = len(all_overlays) - md5_reads
+    log(f"{len(to_parse)} of {len(all_overlays)} changed — {skipped} skipped by mtime, {md5_reads} MD5 reads")
+
+    if not to_parse:
+        log("nothing to do")
+        return cache
+
+    gpx_to_parse = [(cat, fn, p, md5) for cat, fn, p, md5 in to_parse if fn.lower().endswith(".gpx")]
+    other_to_parse = [(cat, fn, p, md5) for cat, fn, p, md5 in to_parse if not fn.lower().endswith(".gpx")]
+
+    if gpx_to_parse:
+        with phase(f"Extracting metadata for {len(gpx_to_parse)} GPX overlay(s)"):
+            new_metas = extract_gpx_metadata_batch([p for _, _, p, _ in gpx_to_parse])
+        with phase(f"Parsing coords for {len(gpx_to_parse)} GPX overlay(s)"):
+            for (cat, fn, path, md5), meta in zip(gpx_to_parse, new_metas):
+                key = f"{cat}/{fn}"
+                tracks_coords, duration_s, moving_s = parse_gpx_coords(path, fn)
+                mtime: float | None = None
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    pass
+                cache[key] = {
+                    "md5": md5, "mtime": mtime, "meta": meta, "tracks": tracks_coords,
+                    "durationS": duration_s, "movingTimeS": moving_s,
+                }
+                log(f"cached {key}")
+
+    if other_to_parse:
+        with phase(f"Parsing {len(other_to_parse)} KML/GeoJSON overlay(s)"):
+            for cat, fn, path, md5 in other_to_parse:
+                fn_lower = fn.lower()
+                if fn_lower.endswith(".kml"):
+                    tracks_coords, display_name = parse_kml_coords(path, fn)
+                elif fn_lower.endswith(".geojson") or fn_lower.endswith(".json"):
+                    tracks_coords, display_name = parse_geojson_coords(path, fn)
+                else:
+                    log(f"  skip {fn}: unsupported format (expected .gpx, .kml, .geojson, .json)")
+                    continue
+                meta_native: dict[str, Any] = {
+                    "displayName": display_name, "datetime": None,
+                    "trackType": None, "linkText": None,
+                }
+                mtime_n: float | None = None
+                try:
+                    mtime_n = path.stat().st_mtime
+                except OSError:
+                    pass
+                cache[f"{cat}/{fn}"] = {
+                    "md5": md5, "mtime": mtime_n, "meta": meta_native, "tracks": tracks_coords,
+                    "durationS": None, "movingTimeS": None,
+                }
+                log(f"cached {cat}/{fn}")
+
+    return cache
+
+
+def run_build_overlays(
+    cache: dict[str, Any],
+    all_overlays: list[tuple[str, str, Path]],
+    filename_to_file_id: dict[str, str],
+    pmtiles_dest: Path,
+    index_dest: Path,
+) -> None:
+    """Build overlays.pmtiles and overlays-index.json from the overlays cache."""
+    index_entries: list[dict[str, Any]] = []
+    unnamed_overlays: list[str] = []
+
+    with tempfile.TemporaryDirectory(prefix="doneit-overlays-") as tmpdir:
+        tmp = Path(tmpdir)
+        geojsonseq = tmp / "overlays.geojsonseq"
+        total = 0
+
+        with geojsonseq.open("w") as out:
+            for category, filename, gvfs_path in all_overlays:
+                file_id = filename_to_file_id.get(filename, get_drive_id(gvfs_path))
+                entry = cache.get(f"{category}/{filename}")
+                if not entry:
+                    continue
+                features = build_overlay_features(entry, category, file_id, filename, unnamed_overlays)
+                for feature in features:
+                    out.write(json.dumps(feature) + "\n")
+                    total += 1
+                if features:
+                    bbox = bbox_from_features(features)
+                    props: dict[str, Any] = features[0]["properties"]
+                    index_entries.append({
+                        "fileId": file_id, "filename": filename, "category": category,
+                        "displayName": props["display_name"], "date": props["date"],
+                        "lengthKm": props["length_km"], "ascentM": props["ascent_m"],
+                        "bbox": bbox,
+                    })
+
+        if total == 0:
+            log("No overlays found in cache — skipping PMTiles build")
+            index_data: dict[str, Any] = {
+                "version": 1,
+                "generated": datetime.now(timezone.utc).isoformat(),
+                "overlays": [],
+            }
+            index_dest.write_text(json.dumps(index_data, indent=2, default=str))
+            return
+
+        if unnamed_overlays:
+            print(f"⚠  {len(unnamed_overlays)} overlay(s) have no name:", file=sys.stderr)
+            for line in unnamed_overlays:
+                print(line, file=sys.stderr)
+
+        pmtiles_tmp = tmp / "overlays.pmtiles"
+        with phase(f"Running tippecanoe for {total} overlay(s)"):
+            subprocess.run(
+                [
+                    "tippecanoe", "-o", str(pmtiles_tmp),
+                    "-l", "overlays", "-Z0", "-z14",
+                    "--no-feature-limit", "--no-tile-size-limit",
+                    "--simplification=4", "--coalesce-densest-as-needed", "--force",
+                    str(geojsonseq),
+                ],
+                check=True,
+            )
+        size_mb = pmtiles_tmp.stat().st_size / 1_048_576
+        log(f"Overlays PMTiles: {size_mb:.1f} MB")
+        shutil.copyfile(str(pmtiles_tmp), str(pmtiles_dest))
+
+    index_data = {
+        "version": 1,
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "overlays": index_entries,
+    }
+    index_dest.write_text(json.dumps(index_data, indent=2, default=str))
+    log(f"overlays-index.json: {len(index_entries)} overlays")
+
+
+# ---------------------------------------------------------------------------
 # Build action: build peaks PMTiles
 # PMTiles features carry only name/category/ele — done status is derived
 # at runtime from peaks-index.json loaded by the app.
@@ -945,8 +1270,8 @@ def fetch_row_geojson(output_path: Path) -> None:
     if _ROW_ETAG_PATH.exists():
         try:
             etags = json.loads(_ROW_ETAG_PATH.read_text())
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  warning: could not read ROW ETag cache — all authorities will be re-fetched: {e}", file=sys.stderr)
 
     # Detect authority-set changes (additions or deletions) by comparing the
     # current scraped codes against what the ETag cache was built from.
@@ -999,8 +1324,8 @@ def fetch_row_geojson(output_path: Path) -> None:
                     f["properties"] = new_p
                 cache_file.write_text(json.dumps(cached, separators=(",", ":")))
                 config_reprocessed.add(code)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  warning: could not reprocess cached ROW data for {code}: {e}", file=sys.stderr)
         if config_reprocessed:
             log(f"Config changed — reprocessed {len(config_reprocessed)} cached authority file(s)")
             changed_authorities.update(config_reprocessed)
@@ -1033,7 +1358,8 @@ def fetch_row_geojson(output_path: Path) -> None:
             # Either just stripped above, or genuinely unchanged — read from cache
             try:
                 features = json.loads(cache_file.read_text())
-            except Exception:
+            except Exception as e:
+                print(f"  warning: could not read ROW cache for {cache_file.name} — skipping: {e}", file=sys.stderr)
                 features = []
         else:
             features = []

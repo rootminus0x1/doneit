@@ -1,5 +1,18 @@
-import type { TrackCategory } from '../hooks/useDriveData';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import type { TrackCategory, LoadedRoute } from '../hooks/useDriveData';
 import type { SyncStatus, SyncProgress } from '../hooks/useSync';
+
+type RouteSortOrder = 'date' | 'closest' | 'name' | 'length';
+
+function routeDistanceSq(route: LoadedRoute, mapLat: number, mapLng: number): number {
+    const bbox = route.bbox;
+    if (!bbox) return Infinity;
+    const clat = (bbox.south + bbox.north) / 2;
+    const clng = (bbox.west + bbox.east) / 2;
+    const dlat = clat - mapLat;
+    const dlng = (clng - mapLng) * Math.cos(mapLat * Math.PI / 180);
+    return dlat * dlat + dlng * dlng;
+}
 
 interface PeakCategory {
     name: string;
@@ -31,6 +44,10 @@ interface Props {
     lastSynced: string | null;
     onSync: () => void;
     onCancelSync: () => void;
+    loadedRoutes: LoadedRoute[];
+    hiddenRoutes: string[];
+    onToggleRoute: (fileId: string) => void;
+    mapCenter: [number, number];
 }
 
 export function Sidebar({
@@ -55,11 +72,65 @@ export function Sidebar({
     lastSynced,
     onSync,
     onCancelSync,
+    loadedRoutes,
+    hiddenRoutes,
+    onToggleRoute,
+    mapCenter,
 }: Props) {
+    const [routeSortOrder, setRouteSortOrder] = useState<RouteSortOrder>('date');
+    const [sidebarWidth, setSidebarWidth] = useState(() => Math.min(300, window.innerWidth - 16));
+    const isDragging = useRef(false);
+    const dragStartX = useRef(0);
+    const dragStartWidth = useRef(0);
+
+    useEffect(() => {
+        const onMove = (e: MouseEvent | TouchEvent) => {
+            if (!isDragging.current) return;
+            const x = 'touches' in e ? e.touches[0].clientX : e.clientX;
+            const newWidth = Math.max(200, Math.min(dragStartWidth.current + x - dragStartX.current, window.innerWidth - 16));
+            setSidebarWidth(newWidth);
+        };
+        const onUp = () => { isDragging.current = false; };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('touchmove', onMove, { passive: true });
+        window.addEventListener('touchend', onUp);
+        return () => {
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('touchmove', onMove);
+            window.removeEventListener('touchend', onUp);
+        };
+    }, []);
+
+    const handleResizeStart = (e: React.MouseEvent | React.TouchEvent) => {
+        isDragging.current = true;
+        dragStartX.current = 'touches' in e ? e.touches[0].clientX : e.clientX;
+        dragStartWidth.current = sidebarWidth;
+        e.preventDefault();
+    };
+
+    const sortedRoutes = useMemo(() => {
+        const [mapLng, mapLat] = mapCenter;
+        return [...loadedRoutes].sort((a, b) => {
+            switch (routeSortOrder) {
+                case 'date':    return (b.date ?? '').localeCompare(a.date ?? '');
+                case 'name':    return a.displayName.localeCompare(b.displayName);
+                case 'length':  return (b.lengthKm ?? 0) - (a.lengthKm ?? 0);
+                case 'closest': return routeDistanceSq(a, mapLat, mapLng) - routeDistanceSq(b, mapLat, mapLng);
+            }
+        });
+    }, [loadedRoutes, routeSortOrder, mapCenter]);
+
     return (
         <>
-            {open && <div style={styles.backdrop} />}
-            <div style={{ ...styles.drawer, transform: open ? 'translateX(0)' : 'translateX(-100%)' }}>
+            {open && <div style={{ ...styles.backdrop, left: sidebarWidth }} />}
+            <div style={{ ...styles.drawer, width: sidebarWidth, transform: open ? 'translateX(0)' : 'translateX(-100%)' }}>
+                <div
+                    style={styles.resizeHandle}
+                    onMouseDown={handleResizeStart}
+                    onTouchStart={handleResizeStart}
+                />
                 <div style={styles.header}>
                     <span style={styles.title}>Done It</span>
                     <button style={styles.closeBtn} onClick={onClose}>
@@ -141,6 +212,42 @@ export function Sidebar({
                         </Section>
                     )}
 
+                    {/* Routes */}
+                    {loadedRoutes.length > 0 && (
+                        <Section label="Routes">
+                            <div style={styles.chipRow}>
+                                {(['date', 'name', 'length', 'closest'] as RouteSortOrder[]).map(order => (
+                                    <button
+                                        key={order}
+                                        style={{ ...styles.chip, ...(routeSortOrder === order ? styles.chipActive : {}) }}
+                                        onClick={() => setRouteSortOrder(order)}
+                                    >
+                                        {order === 'closest' ? 'Nearest' : order.charAt(0).toUpperCase() + order.slice(1)}
+                                    </button>
+                                ))}
+                            </div>
+                            {sortedRoutes.map(route => {
+                                const hidden = hiddenRoutes.includes(route.fileId);
+                                return (
+                                    <button
+                                        key={route.fileId}
+                                        style={styles.filterRow}
+                                        onClick={() => onToggleRoute(route.fileId)}
+                                    >
+                                        <span style={{ ...styles.routeSwatch, background: route.color, opacity: hidden ? 0.3 : 1 }} />
+                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
+                                            {route.displayName}
+                                            {route.lengthKm !== null && (
+                                                <span style={styles.routeMeta}> · {route.lengthKm.toFixed(1)} km</span>
+                                            )}
+                                        </span>
+                                        <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
+                                    </button>
+                                );
+                            })}
+                        </Section>
+                    )}
+
                     {/* Info */}
                     <Section label="Index">
                         <p style={styles.meta}>
@@ -201,7 +308,6 @@ const styles: Record<string, React.CSSProperties> = {
         position: 'fixed',
         top: 0,
         bottom: 0,
-        left: 300,
         right: 0,
         background: 'rgba(0,0,0,0.3)',
         zIndex: 19,
@@ -212,7 +318,6 @@ const styles: Record<string, React.CSSProperties> = {
         top: 0,
         left: 0,
         bottom: 0,
-        width: 300,
         background: '#fff',
         boxShadow: '2px 0 12px rgba(0,0,0,0.2)',
         zIndex: 20,
@@ -220,6 +325,16 @@ const styles: Record<string, React.CSSProperties> = {
         display: 'flex',
         flexDirection: 'column',
         overflowY: 'hidden',
+    },
+    resizeHandle: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 8,
+        cursor: 'col-resize',
+        zIndex: 1,
+        touchAction: 'none',
     },
     header: {
         display: 'flex',
@@ -265,7 +380,7 @@ const styles: Record<string, React.CSSProperties> = {
         padding: '5px 0',
     },
     swatch: { width: 12, height: 12, borderRadius: 2, flexShrink: 0 },
-    filterLabel: { fontSize: 14, flex: 1, color: '#222' },
+    filterLabel: { fontSize: 14, flex: 1, color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
     toggle: { fontSize: 12, color: '#1a73e8', flexShrink: 0 },
     toggleBtn: {
         background: 'none',
@@ -290,6 +405,25 @@ const styles: Record<string, React.CSSProperties> = {
     count: { fontSize: 11, color: '#999', marginLeft: 'auto' },
     meta: { fontSize: 12, color: '#666', margin: '0 0 4px' },
     empty: { fontSize: 13, color: '#999', fontStyle: 'italic' },
+    chipRow: { display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' as const },
+    chip: {
+        padding: '2px 8px',
+        borderRadius: 10,
+        background: '#f0f0f0',
+        border: '1px solid #ddd',
+        cursor: 'pointer',
+        fontSize: 11,
+        color: '#555',
+    },
+    chipActive: { background: '#1a73e8', color: '#fff', borderColor: '#1a73e8' },
+    routeSwatch: {
+        display: 'inline-block',
+        width: 14,
+        height: 4,
+        borderRadius: 2,
+        flexShrink: 0,
+    },
+    routeMeta: { fontSize: 11, color: '#999' },
     syncBtn: {
         padding: '5px 12px',
         borderRadius: 14,

@@ -9,7 +9,7 @@ import { buildRasterStyle } from '../lib/tileConfig';
 import type { TrackCategory, PeakShape } from '../hooks/useDriveData';
 import type { LoadedTrack } from '../hooks/useViewportTracks';
 import type { FeatureCollection, Geometry, Point } from 'geojson';
-import type { TrackBbox } from '../lib/gpxParser';
+import type { TrackBbox, LoadedRoute } from '../lib/gpxParser';
 
 function generatePeakIcon(shape: PeakShape, color: string, strokeColor: string, radius: number): ImageData {
     const dim = Math.ceil(radius * 2 + 4);
@@ -54,6 +54,14 @@ function styleFor(source: TileSource): string | StyleSpecification {
     return source.type === 'raster' ? (buildRasterStyle(source) as StyleSpecification) : source.styleUrl!;
 }
 
+interface RoutePopupData {
+    displayName: string;
+    filename: string;
+    fileId: string;
+    date: string | null;
+    lengthKm: number | null;
+}
+
 interface TrackPopupData {
     displayName: string;
     trackType: string | null;
@@ -80,7 +88,8 @@ interface OverlayPopupData {
 export type PopupData =
     | ({ kind: 'track' } & TrackPopupData)
     | { kind: 'peak'; name: string; elevation: number; category: string; lat: number; lng: number }
-    | ({ kind: 'overlay' } & OverlayPopupData);
+    | ({ kind: 'overlay' } & OverlayPopupData)
+    | ({ kind: 'route' } & RoutePopupData);
 
 export interface LoadedPeaks {
     category: string;
@@ -111,6 +120,7 @@ interface Props {
     overlays: TileSource[];
     tracksPmtilesFileId?: string;
     peaksPmtilesFileId?: string;
+    loadedRoutes: LoadedRoute[];
     peakCategories: PeakCategory[];
     onBoundsChange: (bounds: TrackBbox) => void;
     onMove: (center: [number, number], zoom: number) => void;
@@ -125,6 +135,7 @@ interface Props {
     hiddenTrackTypes: string[];
     hiddenPeakCategories: string[];
     hiddenOverlays: string[];
+    hiddenRoutes: string[];
 }
 
 // Copies track/peak/overlay sources and layers from the previous style into the next one
@@ -347,6 +358,7 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
         if (
             id.startsWith('track-') ||
             id.startsWith('peaks-') ||
+            id.startsWith('route-') ||
             id === PMTILES_SOURCE ||
             id === PEAKS_PMTILES_SOURCE ||
             id.startsWith('overlay-') ||
@@ -362,6 +374,7 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             l.id.startsWith('track-line-') ||
             l.id.startsWith('peaks-') ||
             l.id.startsWith('tracks-pmtiles-') ||
+            l.id.startsWith('route-line-') ||
             l.id.startsWith('overlay-') ||
             l.id === HEADING_LAYER ||
             l.id === HEADING_EDGE_LAYER ||
@@ -400,6 +413,16 @@ function buildTrackPopup(props: Record<string, unknown>): TrackPopupData {
     };
 }
 
+function buildRoutePopup(route: LoadedRoute): RoutePopupData {
+    return {
+        displayName: route.displayName,
+        filename: route.filename,
+        fileId: route.fileId,
+        date: route.date,
+        lengthKm: route.lengthKm,
+    };
+}
+
 function buildOverlayPopup(overlayId: string, overlayLabel: string, props: Record<string, unknown>): OverlayPopupData {
     return {
         overlayId,
@@ -421,6 +444,7 @@ export function MapView({
     overlays,
     tracksPmtilesFileId,
     peaksPmtilesFileId,
+    loadedRoutes,
     peakCategories,
     onBoundsChange,
     onMove,
@@ -433,6 +457,7 @@ export function MapView({
     hiddenTrackTypes,
     hiddenPeakCategories,
     hiddenOverlays,
+    hiddenRoutes,
     baggedSet,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -643,7 +668,8 @@ export function MapView({
         map.on('click', e => {
             const lineLayers = (map.getStyle()?.layers ?? [])
                 .filter(l =>
-                    (l.id.startsWith('track-line-') || l.id.startsWith('tracks-pmtiles-') || l.id.startsWith('overlay-'))
+                    (l.id.startsWith('track-line-') || l.id.startsWith('tracks-pmtiles-') ||
+                     l.id.startsWith('route-line-') || l.id.startsWith('overlay-'))
                     && l.id !== HIGHLIGHT_LAYER,
                 )
                 .map(l => l.id);
@@ -850,6 +876,50 @@ export function MapView({
             }, onFeatureClickRef, onFeatureHoverRef, true, true, 'filename');
         }
     }, [tracksPmtilesFileId, categories, mapVersion]);
+
+    // Sync GeoJSON route layers — one source+layer per route, visibility toggled by hiddenRoutes.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || mapVersion === 0) return;
+
+        for (const route of loadedRoutes) {
+            const sid = `route-${route.fileId}`;
+            const lid = `route-line-${route.fileId}`;
+            if (!map.getSource(sid)) {
+                map.addSource(sid, { type: 'geojson', data: route.geojson });
+                map.addLayer({
+                    id: lid,
+                    type: 'line',
+                    source: sid,
+                    paint: { 'line-color': route.color, 'line-width': 4, 'line-opacity': 0.85 },
+                    layout: { visibility: hiddenRoutes.includes(route.fileId) ? 'none' : 'visible' },
+                });
+                bindInteraction(map, lid, () => ({ kind: 'route', ...buildRoutePopup(route) }),
+                    onFeatureClickRef, onFeatureHoverRef, false, true);
+            }
+        }
+        // Remove sources/layers for routes that are no longer loaded
+        const activeIds = new Set(loadedRoutes.map(r => r.fileId));
+        for (const layer of map.getStyle()?.layers ?? []) {
+            if (!layer.id.startsWith('route-line-')) continue;
+            const fid = layer.id.slice('route-line-'.length);
+            if (!activeIds.has(fid)) {
+                map.removeLayer(layer.id);
+                if (map.getSource(`route-${fid}`)) map.removeSource(`route-${fid}`);
+            }
+        }
+    }, [loadedRoutes, mapVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Sync route visibility when hiddenRoutes changes.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        for (const route of loadedRoutes) {
+            const lid = `route-line-${route.fileId}`;
+            if (map.getLayer(lid))
+                map.setLayoutProperty(lid, 'visibility', hiddenRoutes.includes(route.fileId) ? 'none' : 'visible');
+        }
+    }, [loadedRoutes, hiddenRoutes]);
 
     // Register peak icon images — must run before layer effects and after every style reload
     // (setStyle clears all custom images from the map)

@@ -113,6 +113,7 @@ export default function App() {
         unindexedFiles,
         baggedTracks,
         baggedSet,
+        loadedRoutes,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
 
@@ -153,6 +154,7 @@ export default function App() {
     const [hiddenCategories, setHiddenCategories] = useState<string[]>([]);
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
     const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
+    const [hiddenRoutes, setHiddenRoutes] = useState<string[]>([]);
     const [rowAccessLevel, setRowAccessLevel] = useState(0); // 0=off, 1=motor, 2=cycle, 3=foot
     const peakDefaultsApplied = useRef(false);
 
@@ -166,6 +168,10 @@ export default function App() {
     );
     const togglePeakCategory = useCallback(
         (c: string) => setHiddenPeakCategories(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])),
+        [],
+    );
+    const toggleRoute = useCallback(
+        (f: string) => setHiddenRoutes(prev => (prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f])),
         [],
     );
 
@@ -314,11 +320,13 @@ export default function App() {
                     onStyleFail={handleStyleFail}
                     tracksPmtilesFileId={tracksPmtilesFileId ?? undefined}
                     peaksPmtilesFileId={peaksPmtilesFileId ?? undefined}
+                    loadedRoutes={loadedRoutes}
                     peakCategories={enrichedPeakCategories}
                     hiddenCategories={hiddenCategories}
                     hiddenTrackTypes={hiddenTrackTypes}
                     hiddenPeakCategories={hiddenPeakCategories}
                     hiddenOverlays={hiddenOverlays}
+                    hiddenRoutes={hiddenRoutes}
                     baggedSet={baggedSet}
                 />
             )}
@@ -382,6 +390,10 @@ export default function App() {
                 indexGenerated={trackIndex?.generated ?? null}
                 unindexedCount={unindexedFiles.length}
                 zoom={mapZoom}
+                loadedRoutes={loadedRoutes}
+                hiddenRoutes={hiddenRoutes}
+                onToggleRoute={toggleRoute}
+                mapCenter={mapCenter}
                 syncStatus={syncState.status}
                 syncProgress={syncState.progress}
                 lastSynced={syncState.lastSynced}
@@ -453,6 +465,16 @@ export default function App() {
                                     ✔ Bagged{dates.length > 0 ? `: ${dates.join(', ')}` : ''}
                                 </div>
                             )}
+                        </>
+                    );
+                } else if (feature.kind === 'route') {
+                    title = feature.displayName;
+                    const distLine = feature.lengthKm !== null ? formatKm(feature.lengthKm, 1) : null;
+                    const dateLine = feature.date ? formatDate(feature.date) : null;
+                    body = (
+                        <>
+                            {distLine && <div>{distLine}</div>}
+                            {dateLine && <div>{dateLine}</div>}
                         </>
                     );
                 } else {
