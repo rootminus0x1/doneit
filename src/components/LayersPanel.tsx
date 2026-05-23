@@ -6,6 +6,7 @@ interface Props {
     sources: TileSource[];
     activeId: string;
     onSelect: (id: string) => void;
+    rowPmtilesFileId: string | null;
     rowAccessLevel: number;
     onRowAccessChange: (value: number) => void;
     overlayEntries: OverlayEntry[];
@@ -17,22 +18,21 @@ export function LayersPanel({
     sources,
     activeId,
     onSelect,
+    rowPmtilesFileId,
     rowAccessLevel,
     onRowAccessChange,
     overlayEntries,
     hiddenOverlayFilenames,
     onToggleOverlayFilename,
 }: Props) {
-    const baseSources = sources.filter(s => s.type !== 'pmtiles-overlay');
-    const overlaySources = sources.filter(s => s.type === 'pmtiles-overlay');
-    const rowOverlays = overlaySources.filter(s => s.minAccessLevel !== undefined);
-    const hasOverlays = rowOverlays.length > 0 || overlayEntries.length > 0;
+    const hasRow = rowPmtilesFileId !== null;
+    const hasOverlays = hasRow || overlayEntries.length > 0;
 
     return (
         <div style={styles.container}>
             <div style={styles.col}>
                 <div style={styles.colHeader}>Base map</div>
-                {baseSources.map(s => {
+                {sources.map(s => {
                     const isActive = s.id === activeId;
                     return (
                         <button
@@ -64,7 +64,7 @@ export function LayersPanel({
                     <p style={styles.empty}>No overlays</p>
                 ) : (
                     <>
-                        {rowOverlays.length > 0 && (
+                        {hasRow && (
                             <>
                                 <div style={styles.overlayName}>Rights of Way</div>
                                 <RowAccessSlider value={rowAccessLevel} onChange={onRowAccessChange} />

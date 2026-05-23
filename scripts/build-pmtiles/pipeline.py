@@ -1070,10 +1070,12 @@ def run_build_overlays(
                 if features:
                     bbox = bbox_from_features(features)
                     props: dict[str, Any] = features[0]["properties"]
+                    total_length_km = round(sum(f["properties"].get("length_km", 0.0) for f in features), 2)
+                    total_ascent_m = round(sum(f["properties"].get("ascent_m", 0) for f in features))
                     index_entries.append({
                         "fileId": file_id, "filename": filename, "category": category,
                         "displayName": props["display_name"], "date": props["date"],
-                        "lengthKm": props["length_km"], "ascentM": props["ascent_m"],
+                        "lengthKm": total_length_km, "ascentM": total_ascent_m,
                         "bbox": bbox,
                     })
 

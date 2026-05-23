@@ -272,6 +272,7 @@ def task_build_overlays() -> dict[str, Any]:
         "uptodate": [config_changed({"build_fn": _fn_hash(
             pipeline.build_overlay_features,
             pipeline._smooth_elevation_by_distance,
+            pipeline.run_build_overlays,
         )})],
         "targets": [str(_local_overlays_pmtiles), str(_local_overlays_index)],
         "actions": [action],

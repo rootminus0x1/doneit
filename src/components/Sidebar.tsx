@@ -57,6 +57,7 @@ interface Props {
     loadedRoutes: LoadedRoute[];
     hiddenRoutes: string[];
     onToggleRoute: (fileId: string) => void;
+    rowPmtilesFileId: string | null;
     overlayEntries: OverlayEntry[];
     hiddenOverlayFilenames: string[];
     onToggleOverlayFilename: (filename: string) => void;
@@ -102,6 +103,7 @@ export function Sidebar({
     loadedRoutes,
     hiddenRoutes,
     onToggleRoute,
+    rowPmtilesFileId,
     overlayEntries,
     hiddenOverlayFilenames,
     onToggleOverlayFilename,
@@ -156,7 +158,7 @@ export function Sidebar({
 
     return (
         <>
-            {open && <div style={{ ...styles.backdrop, left: sidebarWidth }} />}
+
             <div style={{ ...styles.drawer, width: sidebarWidth, transform: open ? 'translateX(0)' : 'translateX(-100%)', pointerEvents: open ? 'auto' : 'none' }}>
                 <div
                     style={styles.resizeHandle}
@@ -175,6 +177,7 @@ export function Sidebar({
                                 sources={sources}
                                 activeId={activeSourceId}
                                 onSelect={onSelectSource}
+                                rowPmtilesFileId={rowPmtilesFileId}
                                 rowAccessLevel={rowAccessLevel}
                                 onRowAccessChange={onRowAccessChange}
                                 overlayEntries={overlayEntries}
@@ -318,15 +321,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 }
 
 const styles: Record<string, React.CSSProperties> = {
-    backdrop: {
-        position: 'fixed',
-        top: 0,
-        bottom: 96,   // stops above icon bar
-        right: 0,
-        background: 'rgba(0,0,0,0.3)',
-        zIndex: 19,
-        pointerEvents: 'none',
-    },
+
     drawer: {
         position: 'fixed',
         top: 0,

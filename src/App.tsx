@@ -117,6 +117,7 @@ export default function App() {
         loadedRoutes,
         overlayEntries,
         overlaysPmtilesFileId,
+        rowPmtilesFileId,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
 
@@ -203,20 +204,9 @@ export default function App() {
     const tokenRef = useRef(token);
     tokenRef.current = token;
 
-    const overlays = useMemo(
-        () => allSources.filter(s => s.type === 'pmtiles-overlay'),
-        [allSources],
-    );
-
-
-    const hiddenOverlays = useMemo(
-        () => overlays.filter(ov => (ov.minAccessLevel ?? 0) > rowAccessLevel).map(ov => ov.id),
-        [overlays, rowAccessLevel],
-    );
-
     useEffect(() => {
         allSources
-            .filter(s => (s.type === 'pmtiles-drive' || s.type === 'pmtiles-overlay') && s.fileId)
+            .filter(s => s.type === 'pmtiles-drive' && s.fileId)
             .forEach(s => {
                 registerDrivePMTiles(s.fileId!, () => tokenRef.current ?? '');
                 void upgradeToLocalPMTiles(s.fileId!);
@@ -233,7 +223,11 @@ export default function App() {
             registerDrivePMTiles(overlaysPmtilesFileId, () => tokenRef.current ?? '');
             void upgradeToLocalPMTiles(overlaysPmtilesFileId);
         }
-    }, [allSources, tracksPmtilesFileId, peaksPmtilesFileId, overlaysPmtilesFileId]);
+        if (rowPmtilesFileId) {
+            registerDrivePMTiles(rowPmtilesFileId, () => tokenRef.current ?? '');
+            void upgradeToLocalPMTiles(rowPmtilesFileId);
+        }
+    }, [allSources, tracksPmtilesFileId, peaksPmtilesFileId, overlaysPmtilesFileId, rowPmtilesFileId]);
 
     const loadedTracks = useUnindexedTracks(token, unindexedFiles);
 
@@ -326,7 +320,6 @@ export default function App() {
                     categories={categories}
                     loadedTracks={loadedTracks}
                     loadedPeaks={loadedPeaks}
-                    overlays={overlays}
                     onBoundsChange={() => {}}
                     onFeatureClick={handleFeatureClick}
                     onFeatureHover={handleFeatureHover}
@@ -335,6 +328,8 @@ export default function App() {
                     onStyleFail={handleStyleFail}
                     tracksPmtilesFileId={tracksPmtilesFileId ?? undefined}
                     peaksPmtilesFileId={peaksPmtilesFileId ?? undefined}
+                    rowPmtilesFileId={rowPmtilesFileId}
+                    rowAccessLevel={rowAccessLevel}
                     loadedRoutes={loadedRoutes}
                     peakCategories={enrichedPeakCategories}
                     hiddenCategories={hiddenCategories}
@@ -342,7 +337,6 @@ export default function App() {
                     hiddenPeakCategories={hiddenPeakCategories}
                     overlayEntries={overlayEntries}
                     overlaysPmtilesFileId={overlaysPmtilesFileId}
-                    hiddenOverlays={hiddenOverlays}
                     hiddenOverlayFilenames={hiddenOverlayFilenames}
                     hiddenRoutes={hiddenRoutes}
                     baggedSet={baggedSet}
@@ -406,6 +400,7 @@ export default function App() {
                 loadedRoutes={loadedRoutes}
                 hiddenRoutes={hiddenRoutes}
                 onToggleRoute={toggleRoute}
+                rowPmtilesFileId={rowPmtilesFileId}
                 overlayEntries={overlayEntries}
                 hiddenOverlayFilenames={hiddenOverlayFilenames}
                 onToggleOverlayFilename={toggleOverlayFilename}

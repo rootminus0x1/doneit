@@ -94,6 +94,7 @@ export interface DriveDataState {
     loadedRoutes: LoadedRoute[];
     overlayEntries: OverlayEntry[];
     overlaysPmtilesFileId: string | null;
+    rowPmtilesFileId: string | null;
 }
 
 interface TrackDisplayConfig {
@@ -121,6 +122,7 @@ export function useDriveData(token: string | null): DriveDataState {
     const [loadedRoutes, setLoadedRoutes] = useState<LoadedRoute[]>([]);
     const [overlayEntries, setOverlayEntries] = useState<OverlayEntry[]>([]);
     const [overlaysPmtilesFileId, setOverlaysPmtilesFileId] = useState<string | null>(null);
+    const [rowPmtilesFileId, setRowPmtilesFileId] = useState<string | null>(null);
 
     const init = useCallback(async (tok: string | null) => {
         setReady(false);
@@ -202,6 +204,10 @@ export function useDriveData(token: string | null): DriveDataState {
                 }
             }
             setUnindexedFiles(unindexed);
+
+            // ROW PMTiles — hardcoded layers rendered by MapView
+            const rowPmtiles = await api.findFileByName(tok, 'row.pmtiles', generatedFolderId);
+            setRowPmtilesFileId(rowPmtiles?.id ?? null);
 
             // Overlays PMTiles + index — individual named entries from overlays-index.json
             const [overlaysPmtiles, overlaysIndexFile] = await Promise.all([
@@ -368,6 +374,7 @@ export function useDriveData(token: string | null): DriveDataState {
             setLoadedRoutes([]);
             setOverlayEntries([]);
             setOverlaysPmtilesFileId(null);
+            setRowPmtilesFileId(null);
             return;
         }
         init(token);
@@ -394,5 +401,6 @@ export function useDriveData(token: string | null): DriveDataState {
         loadedRoutes,
         overlayEntries,
         overlaysPmtilesFileId,
+        rowPmtilesFileId,
     };
 }

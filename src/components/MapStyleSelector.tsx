@@ -1,6 +1,5 @@
 import { useState, useRef } from 'react';
 import type { TileSource } from '../lib/tileConfig';
-import { RowAccessSlider } from './RowAccessSlider';
 
 const IS_TOUCH = window.matchMedia('(hover: none)').matches;
 
@@ -9,8 +8,6 @@ interface Props {
     activeId: string;
     sidebarOpen: boolean;
     onSelect: (id: string) => void;
-    rowAccessLevel: number;
-    onRowAccessChange: (value: number) => void;
 }
 
 const CARD = 64;
@@ -21,8 +18,6 @@ export function MapStyleSelector({
     activeId,
     sidebarOpen,
     onSelect,
-    rowAccessLevel,
-    onRowAccessChange,
 }: Props) {
     const [open, setOpen] = useState(false);
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,8 +35,7 @@ export function MapStyleSelector({
     };
     const handleLeave = () => scheduleClose();
 
-    const baseSources = sources.filter(s => s.type !== 'pmtiles-overlay');
-    const overlaySources = sources.filter(s => s.type === 'pmtiles-overlay');
+    const baseSources = sources;
     const active = baseSources.find(s => s.id === activeId) ?? baseSources[0];
     if (!active) return null;
     const behind = baseSources.filter(s => s.id !== activeId).slice(0, 2);
@@ -98,21 +92,6 @@ export function MapStyleSelector({
                         ))}
                     </div>
 
-                    {/* Right column: ROW access slider (only shown when overlays exist) */}
-                    {overlaySources.length > 0 && (
-                        <>
-                            <div style={styles.divider} />
-                            <div style={{ ...styles.column, minWidth: 130 }}>
-                                <div style={styles.columnHeader}>
-                                    Rights of Way
-                                    <span style={{ fontWeight: 400, color: overlaySources.length === 0 ? '#e53935' : '#999' }}>
-                                        {' '}({overlaySources.length})
-                                    </span>
-                                </div>
-                                <RowAccessSlider value={rowAccessLevel} onChange={onRowAccessChange} />
-                            </div>
-                        </>
-                    )}
                 </div>
             )}
 

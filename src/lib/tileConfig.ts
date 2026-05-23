@@ -1,101 +1,59 @@
 import { api, isReady } from './dataApi';
 
-export interface LineStyle {
-    outerColor: string;
-    outerWidth: number;
-    outerOpacity: number;
-    innerColor: string;
-    innerWidth: number;
-}
-
 export interface TileSource {
     id: string;
     label: string;
     // vector: external MapLibre style URL (Stadia, etc.)
     // raster: XYZ tile URL template
     // pmtiles-drive: Drive-hosted PMTiles file used as a base map style
-    // pmtiles-overlay: Drive-hosted PMTiles rendered as a vector overlay on top of the base map
-    type: 'vector' | 'raster' | 'pmtiles-drive' | 'pmtiles-overlay';
-    styleUrl?: string;
-    tileUrl?: string;
-    tileSize?: number;
-    fileId?: string; // Drive file ID — set directly for pmtiles-drive; resolved at startup for pmtiles-overlay
-    filename?: string; // Drive filename to look up at startup (pmtiles-overlay only)
-    sourceLayer?: string; // layer name inside the PMTiles (pmtiles-overlay only)
-    overlayColor?: string; // single-color line colour (pmtiles-overlay without lineStyle)
-    overlayWidth?: number; // single-color line width in pixels (pmtiles-overlay without lineStyle)
-    overlayOpacity?: number; // single-color opacity 0–1 (pmtiles-overlay without lineStyle)
-    overlayMinZoom?: number; // hide below this zoom level when set (pmtiles-overlay only)
-    overlayFilter?: string; // value of 'row_type' property to filter features (pmtiles-overlay only)
-    lineStyle?: LineStyle; // two-color cased line; when present, overrides overlayColor/Width/Opacity
-    minAccessLevel?: number; // 1-3: minimum ROW access slider position at which this overlay is shown
+    type: 'vector' | 'raster' | 'pmtiles-drive';
+    styleUrl?: string;  // vector
+    tileUrl?: string;   // raster
+    tileSize?: number;  // raster
+    fileId?: string;    // pmtiles-drive: required
     attribution: string;
     thumbColor: string;
-    icon: string; // SVG string shown in the style selector thumbnail — not used for pmtiles-overlay
+    icon: string;
+}
+
+const KNOWN_TYPES = ['vector', 'raster', 'pmtiles-drive'] as const;
+
+function validateSource(raw: unknown, index: number): TileSource {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        throw new Error(`tile-sources.json entry ${index} is not an object`);
+    const e = raw as Record<string, unknown>;
+    const at = `tile-sources.json entry ${index} (id: ${JSON.stringify(e.id)})`;
+
+    if (typeof e.id !== 'string' || !e.id)
+        throw new Error(`${at}: missing or empty "id"`);
+    if (!KNOWN_TYPES.includes(e.type as (typeof KNOWN_TYPES)[number]))
+        throw new Error(`${at}: unknown type "${e.type}". Valid types: ${KNOWN_TYPES.join(', ')}`);
+
+    if (e.type === 'vector' && !e.styleUrl)
+        throw new Error(`${at}: "vector" type requires "styleUrl"`);
+    if (e.type === 'raster' && !e.tileUrl)
+        throw new Error(`${at}: "raster" type requires "tileUrl"`);
+    if (e.type === 'pmtiles-drive' && !e.fileId)
+        throw new Error(`${at}: "pmtiles-drive" type requires "fileId"`);
+
+    return raw as TileSource;
 }
 
 export async function loadTileSources(token: string | null): Promise<TileSource[]> {
     if (!isReady(token)) return [];
     const rootId = await api.getRootFolderId(token);
 
-    // tile-sources.json lives in config/
     const rootFolders = await api.listFolders(token, rootId);
     const configFolder = rootFolders.find(f => f.name === 'config');
     if (!configFolder) throw new Error('config/ folder not found in Drive');
     const file = await api.findFileByName(token, 'tile-sources.json', configFolder.id);
     if (!file) throw new Error('tile-sources.json not found in config/ folder');
     const text = await api.readFileText(token, file.id);
-    const sources = JSON.parse(text) as TileSource[];
-    if (!Array.isArray(sources) || sources.length === 0) {
+    const raw = JSON.parse(text);
+    if (!Array.isArray(raw) || raw.length === 0)
         throw new Error('tile-sources.json is empty or not an array');
-    }
 
-    // pmtiles-overlay files are in generated/
-    const generatedFolder = rootFolders.find(f => f.name === 'generated');
-
-    const overlayEntries = sources.filter(s => s.type === 'pmtiles-overlay');
-    console.log(`[tileConfig] tile-sources.json: ${sources.length} total, ${overlayEntries.length} overlay(s):`,
-        overlayEntries.map(s => ({ id: s.id, filename: s.filename, fileId: s.fileId ?? '(none)', hasLineStyle: !!s.lineStyle, minAccessLevel: s.minAccessLevel })),
-    );
-
-    // Resolve Drive filenames to file IDs for pmtiles-overlay entries.
-    // Multiple overlays can share the same filename (e.g. row.pmtiles split by row_type);
-    // each unique filename is looked up once. Overlays whose file isn't on Drive yet are dropped.
-    const filenames = [
-        ...new Set(sources.filter(s => s.type === 'pmtiles-overlay' && !s.fileId && s.filename).map(s => s.filename!)),
-    ];
-    console.log(`[tileConfig] Resolving ${filenames.length} overlay filename(s) in generated/:`, filenames);
-    const fileIdByName: Record<string, string> = {};
-    if (generatedFolder) {
-        await Promise.all(
-            filenames.map(async name => {
-                const found = await api.findFileByName(token, name, generatedFolder.id);
-                if (found) {
-                    fileIdByName[name] = found.id;
-                    console.log(`[tileConfig] ✓ "${name}" → fileId ${found.id}`);
-                } else {
-                    console.warn(`[tileConfig] ✗ "${name}" not found in generated/ folder — overlay(s) using this file will be dropped`);
-                }
-            }),
-        );
-    }
-
-    const resolved = sources
-        .map(s => {
-            if (s.type !== 'pmtiles-overlay' || s.fileId) return s;
-            if (!s.filename) return null;
-            const id = fileIdByName[s.filename];
-            if (!id) {
-                console.warn(`[tileConfig] Dropping overlay "${s.id}": filename "${s.filename}" was not resolved`);
-                return null;
-            }
-            return { ...s, fileId: id };
-        })
-        .filter((s): s is TileSource => s !== null);
-
-    const resolvedOverlays = resolved.filter(s => s.type === 'pmtiles-overlay');
-    console.log(`[tileConfig] ${resolvedOverlays.length}/${overlayEntries.length} overlay(s) resolved with fileId`);
-    return resolved;
+    return raw.map((entry, i) => validateSource(entry, i));
 }
 
 export function buildRasterStyle(source: TileSource): object {

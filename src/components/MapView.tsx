@@ -115,9 +115,10 @@ interface Props {
     categories: TrackCategory[];
     loadedTracks: LoadedTrack[];
     loadedPeaks: LoadedPeaks[];
-    overlays: TileSource[];
     tracksPmtilesFileId?: string;
     peaksPmtilesFileId?: string;
+    rowPmtilesFileId: string | null;
+    rowAccessLevel: number;
     loadedRoutes: LoadedRoute[];
     peakCategories: PeakCategory[];
     onBoundsChange: (bounds: TrackBbox) => void;
@@ -134,7 +135,6 @@ interface Props {
     hiddenPeakCategories: string[];
     overlayEntries: OverlayEntry[];
     overlaysPmtilesFileId: string | null;
-    hiddenOverlays: string[];
     hiddenOverlayFilenames: string[];
     hiddenRoutes: string[];
 }
@@ -149,10 +149,29 @@ const OVERLAYS_PMTILES_SOURCE = 'overlays-pmtiles';
 const overlayEntryLayerId   = (fn: string) => `overlay-entry-${fn}`;
 const overlayEntryOuterId   = (fn: string) => `overlay-entry-outer-${fn}`;
 const overlayEntryInnerId   = (fn: string) => `overlay-entry-inner-${fn}`;
-const overlaySourceId = (id: string) => `overlay-${id}`;
-const overlayLayerId = (id: string) => `overlay-${id}`; // single-color (no lineStyle)
-const overlayOuterLayerId = (id: string) => `overlay-${id}-outer`;
-const overlayInnerLayerId = (id: string) => `overlay-${id}-inner`;
+
+const ROW_SOURCE       = 'row-pmtiles';
+const ROW_SOURCE_LAYER = 'row';
+const rowOuterLayerId = (rowType: string) => `row-outer-${rowType}`;
+const rowInnerLayerId = (rowType: string) => `row-inner-${rowType}`;
+
+interface RowLayerConfig {
+    rowType: string;
+    label: string;
+    minAccessLevel: number;
+    outerColor: string;
+    outerWidth: number;
+    outerOpacity: number;
+    innerColor: string;
+    innerWidth: number;
+}
+
+const ROW_LAYERS: RowLayerConfig[] = [
+    { rowType: 'byway',            label: 'Byway',            minAccessLevel: 1, outerColor: '#f5c518', outerWidth: 10, outerOpacity: 0.3, innerColor: '#2e7d32', innerWidth: 3 },
+    { rowType: 'restricted_byway', label: 'Restricted byway', minAccessLevel: 2, outerColor: '#f5c518', outerWidth: 10, outerOpacity: 0.3, innerColor: '#1565c0', innerWidth: 3 },
+    { rowType: 'bridleway',        label: 'Bridleway',        minAccessLevel: 2, outerColor: '#f5c518', outerWidth: 10, outerOpacity: 0.3, innerColor: '#1565c0', innerWidth: 3 },
+    { rowType: 'footpath',         label: 'Footpath',         minAccessLevel: 3, outerColor: '#f5c518', outerWidth: 10, outerOpacity: 0.3, innerColor: '#8B5E3C', innerWidth: 3 },
+];
 const HIGHLIGHT_SOURCE = 'highlight-line';
 const HIGHLIGHT_GLOW_LAYER = 'highlight-line-glow';
 const HIGHLIGHT_LAYER = 'highlight-line';
@@ -367,6 +386,7 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             id === PMTILES_SOURCE ||
             id === PEAKS_PMTILES_SOURCE ||
             id === OVERLAYS_PMTILES_SOURCE ||
+            id === ROW_SOURCE ||
             id.startsWith('overlay-') ||
             id === HIGHLIGHT_SOURCE ||
             id === HEADING_SOURCE ||
@@ -382,6 +402,7 @@ function preserveCustomLayers(prev: StyleSpecification | undefined, next: StyleS
             l.id.startsWith('tracks-pmtiles-') ||
             l.id.startsWith('route-line-') ||
             l.id.startsWith('overlay-') ||
+            l.id.startsWith('row-') ||
             l.id === HEADING_LAYER ||
             l.id === HEADING_EDGE_LAYER ||
             l.id === TRAVEL_FILL_LAYER ||
@@ -447,9 +468,10 @@ export function MapView({
     categories,
     loadedTracks,
     loadedPeaks,
-    overlays,
     tracksPmtilesFileId,
     peaksPmtilesFileId,
+    rowPmtilesFileId,
+    rowAccessLevel,
     loadedRoutes,
     peakCategories,
     onBoundsChange,
@@ -464,7 +486,6 @@ export function MapView({
     hiddenPeakCategories,
     overlayEntries,
     overlaysPmtilesFileId,
-    hiddenOverlays,
     hiddenOverlayFilenames,
     hiddenRoutes,
     baggedSet,
@@ -733,73 +754,50 @@ export function MapView({
         map.setStyle(styleFor(source), { transformStyle: preserveCustomLayers });
     }, [source]);
 
-    // Add pmtiles-overlay sources and line layers — must run before track/peak layers
-    // so overlays render below tracks and peaks in MapLibre's layer order.
-    // Overlays with lineStyle get two stacked layers (outer halo + inner colour);
-    // overlays without lineStyle get a single layer.
+    // Add ROW PMTiles source + one layer per ROW type. Rendered below tracks/peaks.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || mapVersion === 0) return;
-        for (const ov of overlays) {
-            if (!ov.fileId || !ov.sourceLayer) continue;
-            const srcId = overlaySourceId(ov.id);
-            if (!map.getSource(srcId)) {
-                map.addSource(srcId, { type: 'vector', url: `pmtiles://${ov.fileId}` });
+        if (!map || mapVersion === 0 || !rowPmtilesFileId) return;
+        if (!map.getSource(ROW_SOURCE)) {
+            map.addSource(ROW_SOURCE, { type: 'vector', url: `pmtiles://${rowPmtilesFileId}` });
+        }
+        for (const cfg of ROW_LAYERS) {
+            const outerLid = rowOuterLayerId(cfg.rowType);
+            const innerLid = rowInnerLayerId(cfg.rowType);
+            const filter = ['==', ['get', 'row_type'], cfg.rowType] as unknown as maplibregl.FilterSpecification;
+            if (!map.getLayer(outerLid)) {
+                map.addLayer({
+                    id: outerLid, type: 'line',
+                    source: ROW_SOURCE, 'source-layer': ROW_SOURCE_LAYER,
+                    filter,
+                    paint: {
+                        'line-color': cfg.outerColor,
+                        'line-width': zoomLineWidth(cfg.outerWidth),
+                        'line-opacity': cfg.outerOpacity,
+                    },
+                    layout: { visibility: 'visible' },
+                });
             }
-            const filter = ov.overlayFilter
-                ? { filter: ['==', ['get', 'row_type'], ov.overlayFilter] as unknown as maplibregl.FilterSpecification }
-                : {};
-            const minzoom = ov.overlayMinZoom !== undefined ? { minzoom: ov.overlayMinZoom } : {};
-
-            const getOverlayData = (e: { features?: maplibregl.MapGeoJSONFeature[] }): PopupData | null => {
-                const props = e.features?.[0]?.properties;
-                return props ? { kind: 'overlay', ...buildOverlayPopup(ov.id, ov.label, props) } : null;
-            };
-
-            if (ov.lineStyle) {
-                const outerId = overlayOuterLayerId(ov.id);
-                const innerId = overlayInnerLayerId(ov.id);
-                if (!map.getLayer(outerId)) {
-                    map.addLayer({
-                        id: outerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
-                        ...minzoom, ...filter,
-                        paint: {
-                            'line-color': ov.lineStyle.outerColor,
-                            'line-width': zoomLineWidth(ov.lineStyle.outerWidth),
-                            'line-opacity': ov.lineStyle.outerOpacity,
-                        },
-                    });
-                    bindInteraction(map, outerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef, true, true, 'Name');
-                }
-                if (!map.getLayer(innerId)) {
-                    map.addLayer({
-                        id: innerId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
-                        ...minzoom, ...filter,
-                        paint: {
-                            'line-color': ov.lineStyle.innerColor,
-                            'line-width': zoomLineWidth(ov.lineStyle.innerWidth),
-                            'line-opacity': 1,
-                        },
-                    });
-                    bindInteraction(map, innerId, getOverlayData, onFeatureClickRef, onFeatureHoverRef, true, true, 'Name');
-                }
-            } else {
-                const layId = overlayLayerId(ov.id);
-                if (!map.getLayer(layId)) {
-                    map.addLayer({
-                        id: layId, type: 'line', source: srcId, 'source-layer': ov.sourceLayer,
-                        ...minzoom, ...filter,
-                        paint: {
-                            'line-color': ov.overlayColor ?? '#e8a020',
-                            'line-width': zoomLineWidth(ov.overlayWidth ?? 1.5),
-                            'line-opacity': ov.overlayOpacity ?? 0.75,
-                        },
-                    });
-                    bindInteraction(map, layId, getOverlayData, onFeatureClickRef, onFeatureHoverRef, true, true, 'Name');
-                }
+            if (!map.getLayer(innerLid)) {
+                const getRowData = (e: { features?: maplibregl.MapGeoJSONFeature[] }): PopupData | null => {
+                    const props = e.features?.[0]?.properties;
+                    return props ? { kind: 'overlay', ...buildOverlayPopup(cfg.rowType, cfg.label, props) } : null;
+                };
+                map.addLayer({
+                    id: innerLid, type: 'line',
+                    source: ROW_SOURCE, 'source-layer': ROW_SOURCE_LAYER,
+                    filter,
+                    paint: {
+                        'line-color': cfg.innerColor,
+                        'line-width': zoomLineWidth(cfg.innerWidth),
+                        'line-opacity': 1,
+                    },
+                    layout: { visibility: 'visible' },
+                });
+                bindInteraction(map, innerLid, getRowData, onFeatureClickRef, onFeatureHoverRef, true, true, 'Name');
             }
         }
-    }, [overlays, mapVersion]);
+    }, [rowPmtilesFileId, mapVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Sync track layers — reruns when tracks change or after style loads
     useEffect(() => {
@@ -1071,23 +1069,18 @@ export function MapView({
         }
     }, [baggedSet, peakCategories, peaksPmtilesFileId, mapVersion]);
 
-    // Sync overlay visibility when hiddenOverlays changes.
+    // Sync ROW layer visibility when rowAccessLevel changes.
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
-        for (const ov of overlays) {
-            const vis = hiddenOverlays.includes(ov.id) ? 'none' : 'visible';
-            if (ov.lineStyle) {
-                const outerId = overlayOuterLayerId(ov.id);
-                const innerId = overlayInnerLayerId(ov.id);
-                if (map.getLayer(outerId)) map.setLayoutProperty(outerId, 'visibility', vis);
-                if (map.getLayer(innerId)) map.setLayoutProperty(innerId, 'visibility', vis);
-            } else {
-                const layId = overlayLayerId(ov.id);
-                if (map.getLayer(layId)) map.setLayoutProperty(layId, 'visibility', vis);
-            }
+        for (const cfg of ROW_LAYERS) {
+            const vis = rowAccessLevel >= cfg.minAccessLevel ? 'visible' : 'none';
+            const outerLid = rowOuterLayerId(cfg.rowType);
+            const innerLid = rowInnerLayerId(cfg.rowType);
+            if (map.getLayer(outerLid)) map.setLayoutProperty(outerLid, 'visibility', vis);
+            if (map.getLayer(innerLid)) map.setLayoutProperty(innerLid, 'visibility', vis);
         }
-    }, [overlays, hiddenOverlays, mapVersion]);
+    }, [rowAccessLevel]);
 
     // Add OVERLAYS_PMTILES_SOURCE + one line layer per overlayEntry, filtered by filename.
     // Cased style (outer + inner) is used when entry.outerColor is set.
@@ -1107,7 +1100,8 @@ export function MapView({
             const filter = ['==', ['get', 'filename'], fn] as unknown as maplibregl.FilterSpecification;
             const getEntryData = (e: { features?: maplibregl.MapGeoJSONFeature[] }): PopupData | null => {
                 const props = e.features?.[0]?.properties;
-                return props ? { kind: 'overlay', ...buildOverlayPopup(fn, entry.displayName, props) } : null;
+                if (!props) return null;
+                return { kind: 'overlay', ...buildOverlayPopup(fn, entry.displayName, props), lengthKm: entry.lengthKm };
             };
 
             if (entry.outerColor) {

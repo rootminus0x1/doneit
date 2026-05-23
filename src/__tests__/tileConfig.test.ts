@@ -117,40 +117,47 @@ describe('loadTileSources', () => {
         expect(result[0].id).toBe('test');
     });
 
-    it('drops pmtiles-overlay sources whose filename cannot be resolved', async () => {
-        const sources: TileSource[] = [
-            { ...BASE, type: 'pmtiles-overlay', filename: 'missing.pmtiles', sourceLayer: 'l' },
-        ];
+    // ---- Validation tests ----
+
+    async function expectValidationError(rawEntries: unknown[], pattern: RegExp | string) {
         vi.mocked(isReady).mockReturnValue(true);
         vi.mocked(api.getRootFolderId).mockResolvedValue('root');
-        vi.mocked(api.listFolders).mockResolvedValue([
-            { id: 'cfg', name: 'config' },
-            { id: 'gen', name: 'generated' },
-        ] as never);
-        vi.mocked(api.findFileByName)
-            .mockResolvedValueOnce({ id: 'f1', name: 'tile-sources.json' } as never)
-            .mockResolvedValueOnce(null);
-        vi.mocked(api.readFileText).mockResolvedValue(JSON.stringify(sources));
-        const result = await loadTileSources('tok');
-        expect(result).toHaveLength(0);
+        vi.mocked(api.listFolders).mockResolvedValue([{ id: 'cfg', name: 'config' }] as never);
+        vi.mocked(api.findFileByName).mockResolvedValue({ id: 'f1', name: 'tile-sources.json' } as never);
+        vi.mocked(api.readFileText).mockResolvedValue(JSON.stringify(rawEntries));
+        await expect(loadTileSources('tok')).rejects.toThrow(pattern);
+    }
+
+    it('throws on an entry with an unknown type', async () => {
+        await expectValidationError([{ ...BASE, type: 'unknown-type' }], /unknown type "unknown-type"/);
     });
 
-    it('resolves pmtiles-overlay fileId from generated/ folder', async () => {
-        const sources: TileSource[] = [
-            { ...BASE, type: 'pmtiles-overlay', filename: 'row.pmtiles', sourceLayer: 'row' },
-        ];
-        vi.mocked(isReady).mockReturnValue(true);
-        vi.mocked(api.getRootFolderId).mockResolvedValue('root');
-        vi.mocked(api.listFolders).mockResolvedValue([
-            { id: 'cfg', name: 'config' },
-            { id: 'gen', name: 'generated' },
-        ] as never);
-        vi.mocked(api.findFileByName)
-            .mockResolvedValueOnce({ id: 'f1', name: 'tile-sources.json' } as never)
-            .mockResolvedValueOnce({ id: 'row-file-id', name: 'row.pmtiles' } as never);
-        vi.mocked(api.readFileText).mockResolvedValue(JSON.stringify(sources));
-        const result = await loadTileSources('tok');
-        expect(result).toHaveLength(1);
-        expect(result[0].fileId).toBe('row-file-id');
+    it('throws on pmtiles-overlay type (removed — ROW and overlays are now hardcoded)', async () => {
+        await expectValidationError([{ ...BASE, type: 'pmtiles-overlay' }], /unknown type "pmtiles-overlay"/);
+    });
+
+    it('throws on an entry with a missing id', async () => {
+        await expectValidationError([{ ...BASE, id: '' }], /missing.*"id"/i);
+    });
+
+    it('throws on a vector entry missing styleUrl', async () => {
+        await expectValidationError(
+            [{ ...BASE, type: 'vector', styleUrl: undefined }],
+            /vector.*styleUrl/i,
+        );
+    });
+
+    it('throws on a raster entry missing tileUrl', async () => {
+        await expectValidationError(
+            [{ ...BASE, type: 'raster', tileUrl: undefined }],
+            /raster.*tileUrl/i,
+        );
+    });
+
+    it('throws on a pmtiles-drive entry missing fileId', async () => {
+        await expectValidationError(
+            [{ ...BASE, type: 'pmtiles-drive', fileId: undefined }],
+            /pmtiles-drive.*fileId/i,
+        );
     });
 });
