@@ -11,7 +11,8 @@
       "Bash(yarn vitest *)",
       "Bash(python3 -c \"import pipeline; print\\('OK'\\)\")",
       "Bash(curl -sI \"https://www.rowmaps.com/jsons/EX/mutated1.json\")",
-      "Bash(curl -s \"https://www.rowmaps.com/datasets/\")"
+      "Bash(curl -s \"https://www.rowmaps.com/datasets/\")",
+      "Bash(npx tsc *)"
     ]
   }
 }

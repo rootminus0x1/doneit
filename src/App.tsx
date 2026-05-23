@@ -6,7 +6,8 @@ import { useTileSource } from './hooks/useTileSource';
 import { useUnindexedTracks } from './hooks/useViewportTracks';
 import { MapView, HIGHLIGHT_COLOR } from './components/MapView';
 import type { PopupData } from './components/MapView';
-import { MapStyleSelector } from './components/MapStyleSelector';
+import { IconBar } from './components/IconBar';
+import type { PanelId } from './components/IconBar';
 import { Sidebar } from './components/Sidebar';
 import { registerDrivePMTiles, upgradeToLocalPMTiles } from './lib/drivepmtiles';
 import { useSync } from './hooks/useSync';
@@ -114,6 +115,8 @@ export default function App() {
         baggedTracks,
         baggedSet,
         loadedRoutes,
+        overlayEntries,
+        overlaysPmtilesFileId,
     } = useDriveData(token);
     const { allSources, activeSource, setSource, loadError } = useTileSource(token);
 
@@ -136,8 +139,11 @@ export default function App() {
         setMapZoom(zoom);
     }, []);
 
-    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [activePanel, setActivePanel] = useState<PanelId | null>(null);
     const [mapError, setMapError] = useState<string | null>(null);
+
+    const sidebarOpen = activePanel !== null;
+    const closeSidebar = useCallback(() => setActivePanel(null), []);
 
     const { syncState, startSync, cancelSync } = useSync(token);
 
@@ -155,6 +161,7 @@ export default function App() {
     const [hiddenTrackTypes, setHiddenTrackTypes] = useState<string[]>([]);
     const [hiddenPeakCategories, setHiddenPeakCategories] = useState<string[]>([]);
     const [hiddenRoutes, setHiddenRoutes] = useState<string[]>([]);
+    const [hiddenOverlayFilenames, setHiddenOverlayFilenames] = useState<string[]>([]);
     const [rowAccessLevel, setRowAccessLevel] = useState(0); // 0=off, 1=motor, 2=cycle, 3=foot
     const peakDefaultsApplied = useRef(false);
 
@@ -172,6 +179,10 @@ export default function App() {
     );
     const toggleRoute = useCallback(
         (f: string) => setHiddenRoutes(prev => (prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f])),
+        [],
+    );
+    const toggleOverlayFilename = useCallback(
+        (fn: string) => setHiddenOverlayFilenames(prev => (prev.includes(fn) ? prev.filter(x => x !== fn) : [...prev, fn])),
         [],
     );
 
@@ -218,7 +229,11 @@ export default function App() {
             registerDrivePMTiles(peaksPmtilesFileId, () => tokenRef.current ?? '');
             void upgradeToLocalPMTiles(peaksPmtilesFileId);
         }
-    }, [allSources, tracksPmtilesFileId, peaksPmtilesFileId]);
+        if (overlaysPmtilesFileId) {
+            registerDrivePMTiles(overlaysPmtilesFileId, () => tokenRef.current ?? '');
+            void upgradeToLocalPMTiles(overlaysPmtilesFileId);
+        }
+    }, [allSources, tracksPmtilesFileId, peaksPmtilesFileId, overlaysPmtilesFileId]);
 
     const loadedTracks = useUnindexedTracks(token, unindexedFiles);
 
@@ -325,24 +340,16 @@ export default function App() {
                     hiddenCategories={hiddenCategories}
                     hiddenTrackTypes={hiddenTrackTypes}
                     hiddenPeakCategories={hiddenPeakCategories}
+                    overlayEntries={overlayEntries}
+                    overlaysPmtilesFileId={overlaysPmtilesFileId}
                     hiddenOverlays={hiddenOverlays}
+                    hiddenOverlayFilenames={hiddenOverlayFilenames}
                     hiddenRoutes={hiddenRoutes}
                     baggedSet={baggedSet}
                 />
             )}
 
-            <MapStyleSelector
-                sources={allSources}
-                activeId={activeSource?.id ?? ''}
-                sidebarOpen={sidebarOpen}
-                onSelect={setSource}
-                rowAccessLevel={rowAccessLevel}
-                onRowAccessChange={setRowAccessLevel}
-            />
-
-            <button style={styles.hamburger} onClick={() => setSidebarOpen(true)} title="Menu">
-                ☰
-            </button>
+            <IconBar active={activePanel} onSelect={setActivePanel} />
 
             <div style={styles.authArea}>
                 {token ? (
@@ -375,7 +382,13 @@ export default function App() {
 
             <Sidebar
                 open={sidebarOpen}
-                onClose={() => setSidebarOpen(false)}
+                onClose={closeSidebar}
+                activeSection={activePanel}
+                sources={allSources}
+                activeSourceId={activeSource?.id ?? ''}
+                onSelectSource={setSource}
+                rowAccessLevel={rowAccessLevel}
+                onRowAccessChange={setRowAccessLevel}
                 categories={categories}
                 hiddenCategories={hiddenCategories}
                 onToggleCategory={toggleCategory}
@@ -393,6 +406,9 @@ export default function App() {
                 loadedRoutes={loadedRoutes}
                 hiddenRoutes={hiddenRoutes}
                 onToggleRoute={toggleRoute}
+                overlayEntries={overlayEntries}
+                hiddenOverlayFilenames={hiddenOverlayFilenames}
+                onToggleOverlayFilename={toggleOverlayFilename}
                 mapCenter={mapCenter}
                 syncStatus={syncState.status}
                 syncProgress={syncState.progress}
@@ -518,20 +534,6 @@ export default function App() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-    hamburger: {
-        position: 'absolute',
-        top: 12,
-        left: 12,
-        zIndex: 10,
-        width: 40,
-        height: 40,
-        borderRadius: 8,
-        background: '#fff',
-        border: 'none',
-        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-        cursor: 'pointer',
-        fontSize: 20,
-    },
     authArea: { position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 10 },
     authBtn: {
         padding: '8px 16px',

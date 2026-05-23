@@ -101,7 +101,7 @@ export interface LoadedRoute {
     geojson: FeatureCollection;
 }
 
-const ROUTE_PALETTE = [
+export const ROUTE_PALETTE = [
     '#1d4ed8', // dark blue (default)
     '#0891b2', // cyan-blue
     '#059669', // teal-green
@@ -112,7 +112,7 @@ const ROUTE_PALETTE = [
     '#1e40af', // navy
 ];
 
-function simpleHash(s: string): number {
+export function simpleHash(s: string): number {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (h + s.charCodeAt(i)) & 0xffff;
     return h;

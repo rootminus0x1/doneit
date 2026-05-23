@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, isReady } from '../lib/dataApi';
 import { DriveAuthError } from '../lib/driveApi'; // used only to suppress error display (reconnect banner handles it)
-import { parsePeaksGpx, parseRouteFile, filenameToCategoryLabel } from '../lib/gpxParser';
+import { parsePeaksGpx, parseRouteFile, filenameToCategoryLabel, ROUTE_PALETTE, simpleHash } from '../lib/gpxParser';
 import type { TrackIndex } from '../lib/spatialIndex';
 import type { ParsedPeaks, LoadedRoute } from '../lib/gpxParser';
 
@@ -51,6 +51,32 @@ export interface PeakCategoryDisplay {
 
 export type { LoadedRoute };
 
+export interface OverlayEntry {
+    filename: string;
+    displayName: string;
+    date: string | null;
+    lengthKm: number | null;
+    ascentM: number | null;
+    category: string;
+    color: string;
+    width: number;
+    opacity: number;
+    dashArray: number[] | null;
+    outerColor: string | null;
+    outerWidth: number | null;
+    outerOpacity: number | null;
+}
+
+interface OverlayDisplayConfig {
+    color?: string;
+    width?: number;
+    opacity?: number;
+    dashArray?: number[] | null;
+    outerColor?: string;
+    outerWidth?: number;
+    outerOpacity?: number;
+}
+
 export interface DriveDataState {
     ready: boolean;
     error: string | null;
@@ -66,6 +92,8 @@ export interface DriveDataState {
     baggedSet: Set<string>;
     unindexedFiles: UnindexedFile[];
     loadedRoutes: LoadedRoute[];
+    overlayEntries: OverlayEntry[];
+    overlaysPmtilesFileId: string | null;
 }
 
 interface TrackDisplayConfig {
@@ -91,6 +119,8 @@ export function useDriveData(token: string | null): DriveDataState {
     const [baggedTracks, setBaggedTracks] = useState<BaggedTrack[]>([]);
     const [unindexedFiles, setUnindexedFiles] = useState<UnindexedFile[]>([]);
     const [loadedRoutes, setLoadedRoutes] = useState<LoadedRoute[]>([]);
+    const [overlayEntries, setOverlayEntries] = useState<OverlayEntry[]>([]);
+    const [overlaysPmtilesFileId, setOverlaysPmtilesFileId] = useState<string | null>(null);
 
     const init = useCallback(async (tok: string | null) => {
         setReady(false);
@@ -118,6 +148,8 @@ export function useDriveData(token: string | null): DriveDataState {
                     defaultVisibleSet = new Set(peaksSection.defaultVisible);
             }
             setPeakDisplayConfig(peakDisplayConfigMap);
+            const overlaysDisplay: Record<string, OverlayDisplayConfig> =
+                (disp.overlays as Record<string, OverlayDisplayConfig>) ?? {};
 
             const computeDefaultHidden = (names: string[]) =>
                 defaultVisibleSet ? names.filter(n => !defaultVisibleSet!.has(n)) : [];
@@ -170,6 +202,42 @@ export function useDriveData(token: string | null): DriveDataState {
                 }
             }
             setUnindexedFiles(unindexed);
+
+            // Overlays PMTiles + index — individual named entries from overlays-index.json
+            const [overlaysPmtiles, overlaysIndexFile] = await Promise.all([
+                api.findFileByName(tok, 'overlays.pmtiles', generatedFolderId),
+                api.findFileByName(tok, 'overlays-index.json', generatedFolderId),
+            ]);
+            setOverlaysPmtilesFileId(overlaysPmtiles?.id ?? null);
+            if (overlaysIndexFile) {
+                try {
+                    const idx = JSON.parse(await api.readFileText(tok, overlaysIndexFile.id));
+                    const entries: OverlayEntry[] = Array.isArray(idx.overlays)
+                        ? (idx.overlays as Array<Record<string, unknown>>).map(e => {
+                              const fn = String(e.filename ?? '');
+                              const cfg = overlaysDisplay[fn] ?? {};
+                              return {
+                                  filename: fn,
+                                  displayName: String(e.displayName ?? fn),
+                                  date: e.date ? String(e.date) : null,
+                                  lengthKm: typeof e.lengthKm === 'number' ? e.lengthKm : null,
+                                  ascentM: typeof e.ascentM === 'number' ? e.ascentM : null,
+                                  category: String(e.category ?? 'default'),
+                                  color: cfg.color ?? ROUTE_PALETTE[simpleHash(fn) % ROUTE_PALETTE.length],
+                                  width: cfg.width ?? 3,
+                                  opacity: cfg.opacity ?? 0.85,
+                                  dashArray: cfg.dashArray ?? null,
+                                  outerColor: cfg.outerColor ?? null,
+                                  outerWidth: cfg.outerWidth ?? null,
+                                  outerOpacity: cfg.outerOpacity ?? null,
+                              };
+                          })
+                        : [];
+                    setOverlayEntries(entries);
+                } catch (e) {
+                    console.warn(`Could not load overlays-index.json: ${e instanceof Error ? e.message : e}`);
+                }
+            }
 
             // Routes — live from Drive as GeoJSON (DoneIt/routes/*.{gpx,kml,geojson,json})
             const rootFolders = await api.listFolders(tok, rootId);
@@ -298,6 +366,8 @@ export function useDriveData(token: string | null): DriveDataState {
             setBaggedTracks([]);
             setUnindexedFiles([]);
             setLoadedRoutes([]);
+            setOverlayEntries([]);
+            setOverlaysPmtilesFileId(null);
             return;
         }
         init(token);
@@ -322,5 +392,7 @@ export function useDriveData(token: string | null): DriveDataState {
         baggedSet,
         unindexedFiles,
         loadedRoutes,
+        overlayEntries,
+        overlaysPmtilesFileId,
     };
 }

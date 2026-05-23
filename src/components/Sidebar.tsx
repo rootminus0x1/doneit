@@ -1,6 +1,10 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { TrackCategory, LoadedRoute } from '../hooks/useDriveData';
 import type { SyncStatus, SyncProgress } from '../hooks/useSync';
+import type { PanelId } from './IconBar';
+import type { TileSource } from '../lib/tileConfig';
+import type { OverlayEntry } from '../hooks/useDriveData';
+import { LayersPanel } from './LayersPanel';
 
 type RouteSortOrder = 'date' | 'closest' | 'name' | 'length';
 
@@ -25,6 +29,12 @@ interface PeakCategory {
 interface Props {
     open: boolean;
     onClose: () => void;
+    activeSection: PanelId | null;
+    sources: TileSource[];
+    activeSourceId: string;
+    onSelectSource: (id: string) => void;
+    rowAccessLevel: number;
+    onRowAccessChange: (value: number) => void;
     categories: TrackCategory[];
     hiddenCategories: string[];
     onToggleCategory: (name: string) => void;
@@ -47,12 +57,29 @@ interface Props {
     loadedRoutes: LoadedRoute[];
     hiddenRoutes: string[];
     onToggleRoute: (fileId: string) => void;
+    overlayEntries: OverlayEntry[];
+    hiddenOverlayFilenames: string[];
+    onToggleOverlayFilename: (filename: string) => void;
     mapCenter: [number, number];
 }
+
+const SECTION_TITLE: Partial<Record<PanelId, string>> = {
+    layers:   'Layers',
+    tracks:   'Tracks',
+    peaks:    'Peaks',
+    routes:   'Routes',
+    settings: 'Settings',
+};
 
 export function Sidebar({
     open,
     onClose,
+    activeSection,
+    sources,
+    activeSourceId,
+    onSelectSource,
+    rowAccessLevel,
+    onRowAccessChange,
     categories,
     hiddenCategories,
     onToggleCategory,
@@ -75,6 +102,9 @@ export function Sidebar({
     loadedRoutes,
     hiddenRoutes,
     onToggleRoute,
+    overlayEntries,
+    hiddenOverlayFilenames,
+    onToggleOverlayFilename,
     mapCenter,
 }: Props) {
     const [routeSortOrder, setRouteSortOrder] = useState<RouteSortOrder>('date');
@@ -122,64 +152,73 @@ export function Sidebar({
         });
     }, [loadedRoutes, routeSortOrder, mapCenter]);
 
+    const title = activeSection ? (SECTION_TITLE[activeSection] ?? 'Done It') : 'Done It';
+
     return (
         <>
             {open && <div style={{ ...styles.backdrop, left: sidebarWidth }} />}
-            <div style={{ ...styles.drawer, width: sidebarWidth, transform: open ? 'translateX(0)' : 'translateX(-100%)' }}>
+            <div style={{ ...styles.drawer, width: sidebarWidth, transform: open ? 'translateX(0)' : 'translateX(-100%)', pointerEvents: open ? 'auto' : 'none' }}>
                 <div
                     style={styles.resizeHandle}
                     onMouseDown={handleResizeStart}
                     onTouchStart={handleResizeStart}
                 />
                 <div style={styles.header}>
-                    <span style={styles.title}>Done It</span>
-                    <button style={styles.closeBtn} onClick={onClose}>
-                        ✕
-                    </button>
+                    <span style={styles.title}>{title}</span>
+                    <button style={styles.closeBtn} onClick={onClose}>✕</button>
                 </div>
 
                 <div style={styles.body}>
-                    {/* Category visibility */}
-                    <Section label="Categories">
-                        {categories.map(cat => {
-                            const hidden = hiddenCategories.includes(cat.name);
-                            return (
-                                <button
-                                    key={cat.name}
-                                    style={styles.filterRow}
-                                    onClick={() => onToggleCategory(cat.name)}
-                                >
-                                    <span
-                                        style={{ ...styles.swatch, background: cat.color, opacity: hidden ? 0.3 : 1 }}
-                                    />
-                                    <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
-                                        {cat.label}
-                                    </span>
-                                    <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
-                                </button>
-                            );
-                        })}
-                        {categories.length === 0 && <p style={styles.empty}>No categories found</p>}
-                    </Section>
-
-                    {/* Track type visibility */}
-                    {trackTypes.length > 0 && (
-                        <Section label="Activity type">
-                            {trackTypes.map(t => {
-                                const hidden = hiddenTrackTypes.includes(t);
-                                return (
-                                    <button key={t} style={styles.filterRow} onClick={() => onToggleTrackType(t)}>
-                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>{t}</span>
-                                        <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
-                                    </button>
-                                );
-                            })}
-                        </Section>
+                    {activeSection === 'layers' && (
+                        <div style={styles.layersBody}>
+                            <LayersPanel
+                                sources={sources}
+                                activeId={activeSourceId}
+                                onSelect={onSelectSource}
+                                rowAccessLevel={rowAccessLevel}
+                                onRowAccessChange={onRowAccessChange}
+                                overlayEntries={overlayEntries}
+                                hiddenOverlayFilenames={hiddenOverlayFilenames}
+                                onToggleOverlayFilename={onToggleOverlayFilename}
+                            />
+                        </div>
                     )}
 
-                    {/* Peaks */}
-                    {peakCategories.length > 0 && (
+                    {activeSection === 'tracks' && (
+                        <>
+                            <Section label="Categories">
+                                {categories.map(cat => {
+                                    const hidden = hiddenCategories.includes(cat.name);
+                                    return (
+                                        <button key={cat.name} style={styles.filterRow} onClick={() => onToggleCategory(cat.name)}>
+                                            <span style={{ ...styles.swatch, background: cat.color, opacity: hidden ? 0.3 : 1 }} />
+                                            <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>{cat.label}</span>
+                                            <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
+                                        </button>
+                                    );
+                                })}
+                                {categories.length === 0 && <p style={styles.empty}>No categories found</p>}
+                            </Section>
+
+                            {trackTypes.length > 0 && (
+                                <Section label="Activity type">
+                                    {trackTypes.map(t => {
+                                        const hidden = hiddenTrackTypes.includes(t);
+                                        return (
+                                            <button key={t} style={styles.filterRow} onClick={() => onToggleTrackType(t)}>
+                                                <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>{t}</span>
+                                                <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </Section>
+                            )}
+                        </>
+                    )}
+
+                    {activeSection === 'peaks' && (
                         <Section label="Peaks">
+                            {peakCategories.length === 0 && <p style={styles.empty}>No peaks loaded</p>}
                             {peakCategories.map(pc => {
                                 const hidden = pc.indexed && hiddenPeakCategories.includes(pc.name);
                                 const doneCount = pc.indexed ? (baggedCountByCategory[pc.name] ?? 0) : 0;
@@ -189,22 +228,9 @@ export function Sidebar({
                                         style={{ ...styles.filterRow, cursor: pc.indexed ? 'pointer' : 'default' }}
                                         onClick={pc.indexed ? () => onTogglePeakCategory(pc.name) : undefined}
                                     >
-                                        <span
-                                            style={{
-                                                ...styles.swatch,
-                                                background: pc.color,
-                                                borderRadius: '50%',
-                                                opacity: hidden ? 0.3 : 1,
-                                            }}
-                                        />
-                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
-                                            {pc.label}
-                                        </span>
-                                        {doneCount > 0 && (
-                                            <span style={styles.doneCount}>
-                                                {doneCount}/{pc.count}
-                                            </span>
-                                        )}
+                                        <span style={{ ...styles.swatch, background: pc.color, borderRadius: '50%', opacity: hidden ? 0.3 : 1 }} />
+                                        <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>{pc.label}</span>
+                                        {doneCount > 0 && <span style={styles.doneCount}>{doneCount}/{pc.count}</span>}
                                         {pc.indexed && <span style={styles.toggle}>{hidden ? '○' : '●'}</span>}
                                     </button>
                                 );
@@ -212,9 +238,9 @@ export function Sidebar({
                         </Section>
                     )}
 
-                    {/* Routes */}
-                    {loadedRoutes.length > 0 && (
+                    {activeSection === 'routes' && (
                         <Section label="Routes">
+                            {loadedRoutes.length === 0 && <p style={styles.empty}>No routes loaded</p>}
                             <div style={styles.chipRow}>
                                 {(['date', 'name', 'length', 'closest'] as RouteSortOrder[]).map(order => (
                                     <button
@@ -229,17 +255,11 @@ export function Sidebar({
                             {sortedRoutes.map(route => {
                                 const hidden = hiddenRoutes.includes(route.fileId);
                                 return (
-                                    <button
-                                        key={route.fileId}
-                                        style={styles.filterRow}
-                                        onClick={() => onToggleRoute(route.fileId)}
-                                    >
+                                    <button key={route.fileId} style={styles.filterRow} onClick={() => onToggleRoute(route.fileId)}>
                                         <span style={{ ...styles.routeSwatch, background: route.color, opacity: hidden ? 0.3 : 1 }} />
                                         <span style={{ ...styles.filterLabel, opacity: hidden ? 0.4 : 1 }}>
                                             {route.displayName}
-                                            {route.lengthKm !== null && (
-                                                <span style={styles.routeMeta}> · {route.lengthKm.toFixed(1)} km</span>
-                                            )}
+                                            {route.lengthKm !== null && <span style={styles.routeMeta}> · {route.lengthKm.toFixed(1)} km</span>}
                                         </span>
                                         <span style={styles.toggle}>{hidden ? '○' : '●'}</span>
                                     </button>
@@ -248,46 +268,40 @@ export function Sidebar({
                         </Section>
                     )}
 
-                    {/* Info */}
-                    <Section label="Index">
-                        <p style={styles.meta}>
-                            {trackCount} tracks in PMTiles
-                            {indexGenerated && ` · built ${indexGenerated.slice(0, 10)}`}
-                        </p>
-                        {unindexedCount > 0 && (
-                            <p style={styles.meta}>
-                                {unindexedCount} new track{unindexedCount !== 1 ? 's' : ''} (GPX, not yet in PMTiles)
-                            </p>
-                        )}
-                        <p style={styles.meta}>Zoom: {zoom.toFixed(1)}</p>
-                    </Section>
+                    {activeSection === 'settings' && (
+                        <>
+                            <Section label="Index">
+                                <p style={styles.meta}>
+                                    {trackCount} tracks in PMTiles
+                                    {indexGenerated && ` · built ${indexGenerated.slice(0, 10)}`}
+                                </p>
+                                {unindexedCount > 0 && (
+                                    <p style={styles.meta}>
+                                        {unindexedCount} new track{unindexedCount !== 1 ? 's' : ''} (GPX, not yet in PMTiles)
+                                    </p>
+                                )}
+                                <p style={styles.meta}>Zoom: {zoom.toFixed(1)}</p>
+                            </Section>
 
-                    {/* Offline sync */}
-                    <Section label="Offline cache">
-                        {syncStatus === 'syncing' && syncProgress ? (
-                            <p style={styles.meta}>
-                                {syncProgress.currentFile} ({syncProgress.done}/{syncProgress.total})
-                            </p>
-                        ) : lastSynced ? (
-                            <p style={styles.meta}>Last synced: {lastSynced.slice(0, 10)}</p>
-                        ) : (
-                            <p style={styles.meta}>Not yet synced</p>
-                        )}
-                        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                            <button
-                                style={styles.syncBtn}
-                                onClick={onSync}
-                                disabled={syncStatus === 'syncing'}
-                            >
-                                {syncStatus === 'syncing' ? 'Syncing…' : 'Sync now'}
-                            </button>
-                            {syncStatus === 'syncing' && (
-                                <button style={styles.syncBtn} onClick={onCancelSync}>
-                                    Cancel
-                                </button>
-                            )}
-                        </div>
-                    </Section>
+                            <Section label="Offline cache">
+                                {syncStatus === 'syncing' && syncProgress ? (
+                                    <p style={styles.meta}>{syncProgress.currentFile} ({syncProgress.done}/{syncProgress.total})</p>
+                                ) : lastSynced ? (
+                                    <p style={styles.meta}>Last synced: {lastSynced.slice(0, 10)}</p>
+                                ) : (
+                                    <p style={styles.meta}>Not yet synced</p>
+                                )}
+                                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                                    <button style={styles.syncBtn} onClick={onSync} disabled={syncStatus === 'syncing'}>
+                                        {syncStatus === 'syncing' ? 'Syncing…' : 'Sync now'}
+                                    </button>
+                                    {syncStatus === 'syncing' && (
+                                        <button style={styles.syncBtn} onClick={onCancelSync}>Cancel</button>
+                                    )}
+                                </div>
+                            </Section>
+                        </>
+                    )}
                 </div>
             </div>
         </>
@@ -307,7 +321,7 @@ const styles: Record<string, React.CSSProperties> = {
     backdrop: {
         position: 'fixed',
         top: 0,
-        bottom: 0,
+        bottom: 96,   // stops above icon bar
         right: 0,
         background: 'rgba(0,0,0,0.3)',
         zIndex: 19,
@@ -317,7 +331,7 @@ const styles: Record<string, React.CSSProperties> = {
         position: 'fixed',
         top: 0,
         left: 0,
-        bottom: 0,
+        bottom: 96,   // stops above icon bar
         background: '#fff',
         boxShadow: '2px 0 12px rgba(0,0,0,0.2)',
         zIndex: 20,
@@ -382,27 +396,7 @@ const styles: Record<string, React.CSSProperties> = {
     swatch: { width: 12, height: 12, borderRadius: 2, flexShrink: 0 },
     filterLabel: { fontSize: 14, flex: 1, color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
     toggle: { fontSize: 12, color: '#1a73e8', flexShrink: 0 },
-    toggleBtn: {
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 12,
-        color: '#1a73e8',
-        flexShrink: 0,
-        padding: 0,
-    },
-    doneToggleBtn: {
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        fontSize: 11,
-        color: '#4caf50',
-        flexShrink: 0,
-        padding: 0,
-    },
     doneCount: { fontSize: 11, color: '#4caf50', flexShrink: 0 },
-    metaRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 },
-    count: { fontSize: 11, color: '#999', marginLeft: 'auto' },
     meta: { fontSize: 12, color: '#666', margin: '0 0 4px' },
     empty: { fontSize: 13, color: '#999', fontStyle: 'italic' },
     chipRow: { display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' as const },
@@ -424,6 +418,9 @@ const styles: Record<string, React.CSSProperties> = {
         flexShrink: 0,
     },
     routeMeta: { fontSize: 11, color: '#999' },
+    layersBody: {
+        padding: '12px 16px',
+    },
     syncBtn: {
         padding: '5px 12px',
         borderRadius: 14,
@@ -433,6 +430,5 @@ const styles: Record<string, React.CSSProperties> = {
         cursor: 'pointer',
         fontSize: 13,
         fontWeight: 500,
-        opacity: 1,
     },
 };

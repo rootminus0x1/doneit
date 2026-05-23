@@ -122,6 +122,12 @@ All output in the build pipeline (`dodo.py`, `pipeline.py`) must use the `phase(
 
 No `.env` files of any kind are committed. Locally, all env vars (just `VITE_GOOGLE_CLIENT_ID`) go in `.env.local` (gitignored). In GitHub Actions, `VITE_GOOGLE_CLIENT_ID` is passed via `secrets.*`. See `.github/workflows/deploy.yml`.
 
+### MapLibre controls — prefer built-in over third-party
+
+Use MapLibre GL JS's built-in controls (`NavigationControl`, `GeolocateControl`, `ScaleControl`, `AttributionControl`) in preference to third-party packages. They integrate correctly with MapLibre's internal state and are maintained alongside the renderer.
+
+Third-party controls that wrap or replace built-in functionality (e.g. `maplibre-compass-pro`) can de-sync from MapLibre's internal bearing/pitch state and should be avoided unless the built-in controls genuinely lack the required feature.
+
 ### Local development mode
 
 `yarn dev:local` runs Vite with `--mode localdata`. In this mode the app reads data from the local `DoneIt/` folder (served at `/local-data/` by a Vite dev plugin in `vite.config.ts`) instead of the Drive API. No sign-in required. `DoneIt/` must be populated first by running `yarn data:local`.
